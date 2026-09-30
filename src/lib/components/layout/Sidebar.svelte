@@ -152,10 +152,14 @@
 		folderRegistry[folder.id]?.setFolderItems?.();
 	};
 
-	$: pinnedItems = $settings?.pinnedMenuItems ?? DEFAULT_PINNED_ITEMS;
+	$: pinnedItems = [
+		...new Set([...($settings?.pinnedMenuItems ?? DEFAULT_PINNED_ITEMS), 'audio-studio'])
+	];
 
 	const isMenuItemVisible = (id) => {
 		switch (id) {
+			case 'audio-studio':
+				return true;
 			case 'notes':
 				return (
 					($config?.features?.enable_notes ?? false) &&
@@ -189,6 +193,7 @@
 
 	const getMenuItemMeta = (id) => {
 		const items = {
+			'audio-studio': { label: '语音工作台', href: '/audio-studio', iconType: 'audio' },
 			notes: { label: $i18n.t('Notes'), href: '/notes', iconType: 'note' },
 			workspace: { label: $i18n.t('Workspace'), href: '/workspace', iconType: 'workspace' },
 			automations: { label: $i18n.t('Automations'), href: '/automations', iconType: 'automations' },
@@ -199,6 +204,7 @@
 	};
 
 	const menuItemPathPrefixes = {
+		'audio-studio': '/audio-studio',
 		notes: '/notes',
 		workspace: '/workspace',
 		calendar: '/calendar',
@@ -1057,6 +1063,8 @@
 												<WorkspaceIcon className="size-4" strokeWidth="1.5" />
 											{:else if itemId === 'automations'}
 												<ClockIcon className="size-4" strokeWidth="1.5" />
+											{:else if itemId === 'audio-studio'}
+												<span aria-hidden="true" class="text-base">♫</span>
 											{:else if itemId === 'calendar'}
 												<CalendarIcon className="size-4" strokeWidth="1.5" />
 											{:else if itemId === 'playground'}
@@ -1279,6 +1287,8 @@
 													<WorkspaceIcon className="size-4" strokeWidth="1.5" />
 												{:else if itemId === 'automations'}
 													<ClockIcon className="size-4" strokeWidth="1.5" />
+												{:else if itemId === 'audio-studio'}
+													<span aria-hidden="true" class="text-base">♫</span>
 												{:else if itemId === 'calendar'}
 													<CalendarIcon className="size-4" strokeWidth="1.5" />
 												{:else if itemId === 'playground'}
