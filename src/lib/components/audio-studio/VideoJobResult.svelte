@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import {
 		downloadVideo,
@@ -15,6 +16,36 @@
 	export let hasFinal = false;
 	export let refresh: () => Promise<void>;
 	let busy = false;
+	let editingTitle = false;
+	let draftTitle = '';
+	let editRevision = 0;
+	let titleInput: HTMLInputElement;
+	async function editTitle() {
+		draftTitle = job.title;
+		editRevision = job.revision;
+		editingTitle = true;
+		await tick();
+		titleInput?.focus();
+		titleInput?.select();
+	}
+	async function saveTitle() {
+		if (busy || !draftTitle.trim()) return;
+		busy = true;
+		try {
+			job = await videoStudio(`/jobs/${job.id}`, {
+				method: 'PATCH',
+				body: JSON.stringify({ title: draftTitle.trim(), revision: editRevision })
+			});
+			editingTitle = false;
+			toast.success('视频名称已更新');
+			await refresh();
+		} catch (e) {
+			toast.error(`${e}`);
+		} finally {
+			busy = false;
+		}
+	}
+
 	let externalId = '';
 	$: working = ['queued', 'preparing', 'submitting', 'processing', 'downloading'].includes(
 		job.status
@@ -100,12 +131,81 @@
 </script>
 
 <article
-	class="min-w-0 space-y-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800"
+	class="relative min-w-0 space-y-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800"
 	aria-busy={busy || working}
 >
-	<div class="flex flex-wrap items-start justify-between gap-2">
+	<button
+		type="button"
+		on:click={remove}
+		aria-label="删除视频"
+		title="删除"
+		disabled={busy ||
+			!['completed', 'failed'].includes(job.status) ||
+			['sending', 'unknown'].includes(delivery?.status ?? '')}
+		class="absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+	>
+		<svg
+			aria-hidden="true"
+			class="size-4"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg
+		>
+	</button>
+	<div class="!mt-0 flex flex-wrap items-start justify-between gap-2 pr-6">
 		<div class="min-w-0">
-			<h3 class="break-words font-medium">{job.title}</h3>
+			{#if editingTitle}
+				<form class="flex flex-wrap items-center gap-2" on:submit|preventDefault={saveTitle}>
+					<input
+						bind:this={titleInput}
+						bind:value={draftTitle}
+						aria-label="视频名称"
+						maxlength="100"
+						required
+						disabled={busy}
+						on:keydown={(event) => {
+							if (event.key === 'Escape' && !busy) editingTitle = false;
+						}}
+						class="min-w-0 w-full rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-sm dark:border-gray-600"
+					/>
+					<button
+						type="submit"
+						disabled={busy || !draftTitle.trim()}
+						class="text-sm underline disabled:opacity-40">保存</button
+					>
+					<button
+						type="button"
+						disabled={busy}
+						on:click={() => (editingTitle = false)}
+						class="text-sm text-gray-500">取消</button
+					>
+				</form>
+			{:else}
+				<div class="flex items-start gap-2">
+					<h3 class="min-w-0 break-words font-medium">{job.title}</h3>
+					{#if job.status === 'completed'}<button
+							type="button"
+							disabled={busy}
+							on:click={editTitle}
+							title="改名"
+							aria-label="修改视频名称"
+							class="inline-flex size-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 focus-visible:outline focus-visible:outline-2 disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+						>
+							<svg
+								aria-hidden="true"
+								class="size-4"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.8"
+								stroke-linecap="round"
+								stroke-linejoin="round"><path d="m16 3 5 5L8 21H3v-5L16 3Zm-2 2 5 5" /></svg
+							>
+						</button>{/if}
+				</div>
+			{/if}
 			{#if job.credit}<p class="text-xs text-gray-500">发布署名：{job.credit}</p>{/if}
 			<p class="mt-1 text-xs text-gray-500">
 				{job.stage === 'preview' ? '短预览' : '完整版'} · {job.portrait_name} · {job.resolution} · {job.aspect_ratio}
@@ -201,18 +301,4 @@
 			>
 		</div>
 	{/if}
-	<div class="border-t border-gray-100 pt-3 dark:border-gray-800">
-		<button
-			type="button"
-			on:click={remove}
-			disabled={busy ||
-				!['completed', 'failed'].includes(job.status) ||
-				['sending', 'unknown'].includes(delivery?.status ?? '')}
-			class="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 transition-colors hover:bg-red-50 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
-			>删除记录</button
-		>
-		{#if !['completed', 'failed'].includes(job.status)}<p class="mt-2 text-xs text-gray-500">
-				生成结束或核实提交结果后可删除。
-			</p>{/if}
-	</div>
 </article>

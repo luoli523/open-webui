@@ -105,8 +105,29 @@
 	});
 </script>
 
-<article class="space-y-3 border-b border-gray-100 py-5 dark:border-gray-800">
-	<div class="flex items-start justify-between gap-3">
+<article class="relative space-y-3 border-b border-gray-100 py-5 dark:border-gray-800">
+	<button
+		type="button"
+		on:click={remove}
+		aria-label="删除播报"
+		title="删除"
+		disabled={busy ||
+			sending ||
+			!['completed', 'failed', 'interrupted'].includes(job.status) ||
+			['sending', 'unknown'].includes(delivery?.status ?? '')}
+		class="absolute right-0 top-3 inline-flex size-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+	>
+		<svg
+			aria-hidden="true"
+			class="size-4"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg
+		>
+	</button>
+	<div class="!mt-0 flex items-start justify-between gap-3 pr-9">
 		<div class="min-w-0">
 			<h3 class="break-words font-medium">{job.title}</h3>
 			<p class="mt-1 text-xs text-gray-500">
@@ -163,20 +184,4 @@
 				>
 			</div>
 		</div>{/if}
-	<div class="pt-2">
-		<button
-			type="button"
-			on:click={remove}
-			disabled={busy ||
-				sending ||
-				!['completed', 'failed', 'interrupted'].includes(job.status) ||
-				['sending', 'unknown'].includes(delivery?.status ?? '')}
-			class="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
-		>
-			{busy ? '处理中…' : '删除播报'}
-		</button>
-		{#if ['queued', 'running'].includes(job.status)}<p class="mt-2 text-xs text-gray-500">
-				生成结束后可删除。
-			</p>{/if}
-	</div>
 </article>

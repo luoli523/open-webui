@@ -131,6 +131,27 @@ async def delete_job(id: str, user=Depends(get_verified_user)):
     return await service.delete_record(id, user)
 
 
+class Rename(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+    revision: int = Field(ge=0)
+
+
+@router.patch('/jobs/{id}')
+async def rename_job(id: str, form: Rename, user=Depends(get_verified_user)):
+    item = await service.owned(id, user)
+    if item['status'] != 'completed':
+        raise HTTPException(409, '视频生成完成后可改名')
+    title = ' '.join(form.title.split())
+    if not title:
+        raise HTTPException(400, '请输入视频名称')
+    if item['revision'] != form.revision:
+        raise HTTPException(409, '记录已变化，请刷新后重新改名')
+    result = await records.change(item, title=title)
+    if not result:
+        raise HTTPException(409, '记录已变化，请刷新后重新改名')
+    return service.public(result)
+
+
 class Approval(BaseModel):
     fingerprint: str = Field(max_length=64)
     consent: Literal[True]

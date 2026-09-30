@@ -27,6 +27,7 @@ export type Provider = {
 };
 export type VideoJob = {
 	id: string;
+	revision: number;
 	title: string;
 	credit?: string;
 	status: string;
