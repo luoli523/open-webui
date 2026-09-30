@@ -104,7 +104,17 @@ async def cleanup_deleted():
         for item in items:
             if item['kind'] != 'job' or not item.get('deleted_at'):
                 continue
-            names = [item['id'] + suffix for suffix in ('.mp4', '.tmp.mp4', '-preview.mp3', '-preview.mp3.tmp.mp3')]
+            names = [
+                item['id'] + suffix
+                for suffix in (
+                    '.mp4',
+                    '.tmp.mp4',
+                    '-preview.mp3',
+                    '-preview.mp3.tmp.mp3',
+                    '-thumb.jpg',
+                    '-thumb.tmp.jpg',
+                )
+            ]
             names.extend(
                 name
                 for name in (item.get('audio_asset'), item.get('portrait_asset'))

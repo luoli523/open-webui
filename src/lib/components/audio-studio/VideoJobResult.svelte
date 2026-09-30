@@ -9,6 +9,8 @@
 		type Receipt
 	} from '$lib/apis/video-studio';
 	import StudioMedia from './StudioMedia.svelte';
+	import VideoThumbnail from './VideoThumbnail.svelte';
+	let expanded = false;
 	import WorkingIndicator from './WorkingIndicator.svelte';
 	export let job: VideoJob;
 	export let delivery: Receipt | undefined = undefined;
@@ -131,7 +133,7 @@
 </script>
 
 <article
-	class="relative min-w-0 space-y-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800"
+	class="relative min-w-0 space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-800"
 	aria-busy={busy || working}
 >
 	<button
@@ -154,8 +156,14 @@
 			stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg
 		>
 	</button>
-	<div class="!mt-0 flex flex-wrap items-start justify-between gap-2 pr-6">
-		<div class="min-w-0">
+	<div class="!mt-0 flex flex-wrap items-start gap-2 pr-6">
+		{#if job.status === 'completed'}{#key job.attempt}<VideoThumbnail
+					id={job.id}
+					title={job.title}
+					{expanded}
+					ontoggle={() => (expanded = !expanded)}
+				/>{/key}{/if}
+		<div class="min-w-0 flex-1">
 			{#if editingTitle}
 				<form class="flex flex-wrap items-center gap-2" on:submit|preventDefault={saveTitle}>
 					<input
@@ -184,7 +192,7 @@
 				</form>
 			{:else}
 				<div class="flex items-start gap-2">
-					<h3 class="min-w-0 break-words font-medium">{job.title}</h3>
+					<h3 class="min-w-0 truncate text-sm font-medium" title={job.title}>{job.title}</h3>
 					{#if job.status === 'completed'}<button
 							type="button"
 							disabled={busy}
@@ -210,6 +218,9 @@
 			<p class="mt-1 text-xs text-gray-500">
 				{job.stage === 'preview' ? '短预览' : '完整版'} · {job.portrait_name} · {job.resolution} · {job.aspect_ratio}
 				· {Math.ceil(job.duration)} 秒
+				<span class="block mt-1 text-[11px] text-gray-400"
+					>{new Date(job.created_at * 1000).toLocaleString()}</span
+				>
 			</p>
 		</div>
 		<span class="inline-flex items-center gap-2 text-xs text-gray-500" role="status"
@@ -218,15 +229,18 @@
 				: (labels[job.status] ?? job.status)}</span
 		>
 	</div>
-	<p class="text-xs text-gray-500">
-		{job.provider_id} · {new Date(job.created_at * 1000).toLocaleString()}
-	</p>
 	{#if job.error}<p role="alert" class="break-words text-sm text-red-600 dark:text-red-400">
 			{job.error}
 		</p>{/if}
 	{#if job.status === 'completed'}
-		<StudioMedia path={`/jobs/${job.id}/video`} kind="video" version={String(job.attempt)} />
-		<div class="flex flex-wrap gap-4 text-sm">
+		{#if expanded}<StudioMedia
+				path={`/jobs/${job.id}/video`}
+				kind="video"
+				version={String(job.attempt)}
+				autoplay
+				compact
+			/>{/if}
+		<div class="flex flex-wrap gap-x-3 gap-y-1 text-xs">
 			{#if job.stage === 'preview'}<button
 					disabled={busy || hasFinal}
 					on:click={final}

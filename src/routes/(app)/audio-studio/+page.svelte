@@ -11,7 +11,7 @@
 	import WorkingIndicator from '$lib/components/audio-studio/WorkingIndicator.svelte';
 	import VoicePreview from '$lib/components/audio-studio/VoicePreview.svelte';
 	import { studio, post, type Voice, type Job, type Delivery } from '$lib/apis/audio-studio';
-	let tab = 'generate';
+	let tab = 'voices';
 	let videoAudio = '';
 	let videoPortrait = '';
 	let voices: Voice[] = [];
@@ -102,7 +102,7 @@
 					class="mt-4 flex flex-wrap gap-x-5 border-b border-gray-200 dark:border-gray-800"
 					aria-label="工作台页面"
 				>
-					{#each [{ id: 'generate', label: '生成播报' }, { id: 'voices', label: '我的音色' }, { id: 'video', label: '数字人视频' }, { id: 'portraits', label: '我的人物' }] as item}<button
+					{#each [{ id: 'voices', label: '音色库' }, { id: 'portraits', label: '人物库' }, { id: 'generate', label: '生成播报' }, { id: 'video', label: '生成视频' }] as item}<button
 							class="border-b-2 px-1 py-3 text-sm {tab === item.id
 								? 'border-gray-900 font-medium dark:border-white'
 								: 'border-transparent text-gray-500'}"

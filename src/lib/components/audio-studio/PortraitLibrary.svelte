@@ -121,7 +121,7 @@
 				></label
 			>
 			<div class="flex items-center justify-between gap-2 text-xs text-gray-500">
-				<span>设计音色需先在「我的音色」生成并保存。</span>
+				<span>设计音色需先在「音色库」生成并保存。</span>
 				<button
 					type="button"
 					disabled={refreshingVoices}

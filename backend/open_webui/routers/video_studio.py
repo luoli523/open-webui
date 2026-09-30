@@ -203,6 +203,22 @@ async def resolve_submission(id: str, form: ResolveSubmission, user=Depends(get_
     return service.public(updated)
 
 
+@router.get('/jobs/{id}/thumbnail')
+async def thumbnail(id: str, user=Depends(get_verified_user)):
+    async with service.asset_lock():
+        item = await service.owned(id, user)
+        source = media.path(item['id'] + '.mp4')
+        if item['status'] != 'completed' or not source.is_file():
+            raise HTTPException(409, '视频尚未准备好')
+        target = media.path(item['id'] + '-thumb.jpg')
+        if not target.is_file() or target.stat().st_mtime_ns < source.stat().st_mtime_ns:
+            try:
+                await media.thumbnail(source, target)
+            except (OSError, ValueError, TimeoutError):
+                raise HTTPException(502, '首帧提取失败，仍可播放原视频') from None
+        return FileResponse(target, media_type='image/jpeg', headers={'Cache-Control': 'private, no-store'})
+
+
 @router.get('/jobs/{id}/video')
 async def video(id: str, user=Depends(get_verified_user)):
     item = await service.owned(id, user)

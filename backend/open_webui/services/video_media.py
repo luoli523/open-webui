@@ -194,3 +194,31 @@ async def validate_video(source, expected_duration):
         timeout=600,
     )
     return duration
+
+
+async def thumbnail(source, target):
+    temp = path(target.stem + '.tmp.jpg')
+    try:
+        await command(
+            'ffmpeg',
+            '-nostdin',
+            '-v',
+            'error',
+            '-y',
+            '-protocol_whitelist',
+            'file,pipe',
+            '-i',
+            source,
+            '-frames:v',
+            '1',
+            '-vf',
+            'scale=320:180:force_original_aspect_ratio=decrease',
+            '-q:v',
+            '3',
+            temp,
+            timeout=60,
+        )
+        os.chmod(temp, 0o600)
+        os.replace(temp, target)
+    finally:
+        temp.unlink(missing_ok=True)

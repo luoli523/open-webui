@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import { user } from '$lib/stores';
 	import { toast } from 'svelte-sonner';
 	import { studio, type Voice } from '$lib/apis/audio-studio';
@@ -31,6 +31,19 @@
 	];
 	let activeTab = 'clone';
 	let search = '';
+	let searchOpen = false;
+	let searchInput: HTMLInputElement;
+	let menuOpen = '';
+	async function toggleSearch() {
+		searchOpen = !searchOpen;
+		if (searchOpen) {
+			await tick();
+			searchInput?.focus();
+		} else {
+			search = '';
+			page = 1;
+		}
+	}
 	let page = 1;
 	const pageSize = 8;
 	const category = (voice: Voice) =>
@@ -263,7 +276,40 @@
 		</div>
 	</section>
 	<section class="min-w-0">
-		<h2 class="mb-4 font-semibold">音色库 · 可逐一试听</h2>
+		<div class="mb-3 flex items-center justify-between gap-2">
+			<h2 class="font-semibold">音色库</h2>
+			<div class="flex min-w-0 items-center gap-1">
+				{#if searchOpen}<input
+						bind:this={searchInput}
+						type="search"
+						bind:value={search}
+						aria-label="搜索音色"
+						placeholder="搜索音色"
+						on:input={() => (page = 1)}
+						on:keydown={(e) => {
+							if (e.key === 'Escape') toggleSearch();
+						}}
+						class="w-32 min-w-0 rounded-md border border-gray-200 bg-transparent px-2 py-1 text-xs sm:w-44 dark:border-gray-700"
+					/>{/if}
+				<button
+					type="button"
+					on:click={toggleSearch}
+					aria-label="搜索音色"
+					title="搜索音色"
+					aria-expanded={searchOpen}
+					class="inline-flex size-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 dark:hover:bg-gray-800"
+				>
+					<svg
+						aria-hidden="true"
+						class="size-4"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.8"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg
+					>
+				</button>
+			</div>
+		</div>
 		<div
 			role="tablist"
 			aria-label="音色分类"
@@ -288,16 +334,6 @@
 				</button>
 			{/each}
 		</div>
-		<label class="mt-4 block text-sm"
-			>搜索音色
-			<input
-				type="search"
-				bind:value={search}
-				on:input={() => (page = 1)}
-				placeholder="输入角色或音色名称"
-				class="mt-2 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 dark:border-gray-700"
-			/>
-		</label>
 		<div
 			id="voice-list-panel"
 			role="tabpanel"
@@ -306,39 +342,62 @@
 			class="mt-3 max-h-[65vh] overflow-y-auto overscroll-contain divide-y divide-gray-100 pr-2 dark:divide-gray-800"
 		>
 			{#each displayed as voice (voice.id)}
-				<div class="space-y-3 py-4">
-					<div class="flex items-start justify-between gap-3">
-						<div>
-							<p class="font-medium">{voice.name}</p>
-							<p class="mt-1 text-xs text-gray-500">
-								{voice.kind === 'preset'
-									? '预设音色'
-									: voice.mode === 'reference'
-										? '录音 + 参考原文'
-										: '仅参考录音'} · {voice.owner_id ? '个人音色' : '已有音色'}
-							</p>
-						</div>
-						{#if voice.kind === 'clone'}<button
-								class="text-sm underline"
-								on:click={() => listen(voice)}>原始参考录音</button
-							>{/if}
+				<div class="py-2">
+					<div class="flex min-w-0 items-center gap-2">
+						<p class="min-w-0 truncate text-sm font-medium" title={voice.name}>{voice.name}</p>
+						<VoicePreview {voice} compact />
+						<span class="ml-auto shrink-0 text-[11px] text-gray-400"
+							>{voice.kind === 'preset' ? '预设' : '录音'}</span
+						>
+						{#if voice.kind === 'clone'}
+							<div class:open={menuOpen === voice.id} class="voice-actions relative shrink-0">
+								<button
+									type="button"
+									aria-label={`管理 ${voice.name}`}
+									title="编辑 / 删除"
+									aria-expanded={menuOpen === voice.id}
+									on:click={() => (menuOpen = menuOpen === voice.id ? '' : voice.id)}
+									class="inline-flex size-7 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 dark:hover:bg-gray-800"
+									>⋯</button
+								>
+								<div
+									class="actions-panel absolute right-7 top-0 z-20 flex items-center gap-3 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs shadow-sm dark:border-gray-700 dark:bg-gray-900"
+								>
+									<button
+										type="button"
+										on:click={() => {
+											listen(voice);
+											menuOpen = '';
+										}}>原录音</button
+									>
+									{#if voice.owner_id === $user?.id || $user?.role === 'admin'}
+										<button
+											type="button"
+											disabled={saving || designBusy}
+											on:click={() => {
+												edit(voice);
+												menuOpen = '';
+											}}>编辑</button
+										>
+										<button
+											type="button"
+											disabled={saving || designBusy}
+											class="text-red-600 dark:text-red-400"
+											on:click={() => {
+												deleting = voice.id;
+												menuOpen = '';
+											}}>删除</button
+										>
+									{/if}
+								</div>
+							</div>
+						{/if}
 					</div>
 					{#if previewId === voice.id && referencePreview}<audio
-							class="w-full"
+							class="mt-2 h-8 w-full"
 							src={referencePreview}
 							controls><track kind="captions" /></audio
 						>{/if}
-					<VoicePreview {voice} />
-					{#if voice.kind === 'clone' && (voice.owner_id === $user?.id || $user?.role === 'admin')}<div
-							class="flex gap-4 text-sm"
-						>
-							<button disabled={saving || designBusy} on:click={() => edit(voice)}>编辑</button
-							><button
-								class="text-red-600 dark:text-red-400"
-								disabled={saving || designBusy}
-								on:click={() => (deleting = voice.id)}>删除</button
-							>
-						</div>{/if}
 					{#if deleting === voice.id}<div
 							class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-900"
 						>
@@ -378,6 +437,19 @@
 </div>
 
 <style>
+	.actions-panel {
+		visibility: hidden;
+		opacity: 0;
+		pointer-events: none;
+	}
+	.voice-actions:hover .actions-panel,
+	.voice-actions:focus-within .actions-panel,
+	.voice-actions.open .actions-panel {
+		visibility: visible;
+		opacity: 1;
+		pointer-events: auto;
+	}
+
 	@container audio-studio (min-width: 56rem) {
 		.voice-columns {
 			grid-template-columns: repeat(2, minmax(0, 1fr));

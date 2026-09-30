@@ -7,6 +7,8 @@
 	export let kind: 'image' | 'video' | 'audio' = 'image';
 	export let alt = '';
 	export let version = '';
+	export let autoplay = false;
+	export let compact = false;
 	let url = '';
 	let error = '';
 	let loading = false;
@@ -20,7 +22,7 @@
 		url = '';
 		error = '';
 		loading = false;
-		if (kind === 'image') load();
+		if (kind === 'image' || autoplay) load();
 	}
 	async function load() {
 		controller?.abort();
@@ -61,8 +63,11 @@
 			src={url}
 			controls
 			playsinline
+			{autoplay}
 			preload="metadata"
-			class="max-h-[32rem] w-full rounded-lg bg-black"
+			class={compact
+				? 'max-h-64 w-full rounded-lg bg-black'
+				: 'max-h-[32rem] w-full rounded-lg bg-black'}
 		></video>
 	{:else}
 		<audio src={url} controls class="w-full"></audio>

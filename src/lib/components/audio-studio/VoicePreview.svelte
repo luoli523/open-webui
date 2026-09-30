@@ -3,6 +3,8 @@
 	import { studio, type Voice } from '$lib/apis/audio-studio';
 	import WorkingIndicator from './WorkingIndicator.svelte';
 	export let voice: Voice | undefined = undefined;
+	export let compact = false;
+	let paused = true;
 	let url = '';
 	let busy = false;
 	let error = '';
@@ -29,6 +31,10 @@
 	}
 	async function listen() {
 		if (!voice || busy) return;
+		if (url && !paused) {
+			player?.pause();
+			return;
+		}
 		announce();
 		if (url) {
 			try {
@@ -91,26 +97,38 @@
 	onDestroy(clear);
 </script>
 
-<div class="space-y-2">
+<div class={compact ? 'relative inline-flex shrink-0 items-center' : 'space-y-2'}>
 	<button
 		type="button"
 		disabled={!voice || busy}
 		on:click={listen}
-		class="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors hover:border-gray-400 hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:hover:bg-gray-800"
+		title={busy ? status : paused ? '试听音色' : '暂停试听'}
+		aria-label={busy ? status : `${paused ? '试听' : '暂停'} ${voice?.name ?? '音色'}`}
+		class={compact
+			? 'inline-flex size-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-white'
+			: 'inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:hover:bg-gray-800'}
 	>
 		{#if busy}<WorkingIndicator />{:else}<svg
 				aria-hidden="true"
 				class="size-4"
 				viewBox="0 0 24 24"
-				fill="currentColor"><path d="M8 5v14l11-7z" /></svg
+				fill="currentColor"
+				>{#if paused}<path d="M8 5v14l11-7z" />{:else}<path
+						d="M6 5h4v14H6zM14 5h4v14h-4z"
+					/>{/if}</svg
 			>{/if}
-		{busy ? status : voice ? `试听音色 · ${voice.name}` : '选择音色后试听'}
+		{#if !compact}{busy ? status : voice ? `试听音色 · ${voice.name}` : '选择音色后试听'}{/if}
 	</button>
-	{#if busy}<p role="status" class="text-xs text-gray-500">
+	{#if busy && !compact}<p role="status" class="text-xs text-gray-500">
 			首次试听由本地模型生成，完成后会缓存。
 		</p>{/if}
-	{#if url}<audio bind:this={player} src={url} controls on:play={announce} class="w-full"
-			><track kind="captions" /></audio
+	{#if url}<audio
+			bind:this={player}
+			bind:paused
+			src={url}
+			controls={!compact}
+			on:play={announce}
+			class={compact ? 'hidden' : 'w-full'}><track kind="captions" /></audio
 		>{/if}
 	{#if error}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{error}</p>{/if}
 </div>
