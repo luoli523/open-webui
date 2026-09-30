@@ -1,12 +1,17 @@
 """HeyGen v3 image + existing audio adapter. No vendor TTS or automatic POST retry."""
 
 import ipaddress
+import json as jsonlib
+import logging
 import re
 from urllib.parse import quote, urlsplit
 
 import aiohttp
 from aiohttp.resolver import ThreadedResolver
 from .base import ProviderError, SubmissionUnknown, VideoProvider
+
+
+log = logging.getLogger(__name__)
 
 
 class PublicResolver(ThreadedResolver):
@@ -34,6 +39,46 @@ class HeyGen(VideoProvider):
         duration_note='工作台首版限制为 5 分钟，实际还受 HeyGen 账户配额限制',
     )
 
+    async def rejection(self, response):
+        """Preserve vendor diagnostics without dumping response bodies or credentials."""
+        code, message = '', ''
+        try:
+            raw = bytearray()
+            while len(raw) < 16384:
+                chunk = await response.content.read(16384 - len(raw))
+                if not chunk:
+                    break
+                raw.extend(chunk)
+            body = jsonlib.loads(raw)
+            error = body.get('error', body) if isinstance(body, dict) else {}
+            if isinstance(error, dict):
+                code = str(error.get('code') or '')
+                message = str(error.get('message') or '')
+            elif isinstance(error, str):
+                message = error
+        except (ValueError, TimeoutError, aiohttp.ClientError):
+            pass
+        key = self.config.get('api_key')
+        if key:
+            message = message.replace(key, '[redacted]')
+            code = code.replace(key, '[redacted]')
+        code = re.sub(r'[^A-Za-z0-9_.-]', '', code)[:80]
+        message = re.sub(r'https?://\S+', '[URL]', message)
+        message = re.sub(r'(?i)(bearer\s+|(?:api[_-]?key|token)\s*[:=]\s*)[^\s,;]+', r'\1[redacted]', message)
+        message = ' '.join(message.split())[:500]
+        request_id = re.sub(r'[^A-Za-z0-9_.-]', '', response.headers.get('x-request-id', ''))[:100]
+        log.warning(
+            'HeyGen rejection HTTP=%s code=%s request_id=%s',
+            response.status,
+            code or 'unknown',
+            request_id or 'unavailable',
+        )
+        detail = f'HeyGen 拒绝请求（HTTP {response.status}' + (f'，{code}' if code else '') + '）'
+        detail += '：' + (message or '服务未返回可用的具体原因，请到 HeyGen 核对素材和请求')
+        if request_id:
+            detail += f' [request_id={request_id}]'
+        return detail
+
     async def request(self, method, path, *, json=None, data=None, submission=False):
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120, connect=15)) as session:
@@ -50,9 +95,9 @@ class HeyGen(VideoProvider):
                             raise SubmissionUnknown('提交结果待核实，请到 HeyGen 核对任务，勿重复生成')
                         raise ProviderError('HeyGen 暂时无法响应，可稍后继续查询')
                     if response.status >= 400:
-                        if submission and response.status not in (400, 401, 403, 404, 413, 415, 422, 429):
+                        if submission and response.status not in (400, 401, 402, 403, 404, 413, 415, 422, 429):
                             raise SubmissionUnknown('提交结果待核实，请到 HeyGen 核对任务')
-                        raise ProviderError(f'HeyGen 拒绝请求（HTTP {response.status}），请检查密钥、配额和素材')
+                        raise ProviderError(await self.rejection(response))
                     result = await response.json()
                     body = result.get('data', result)
                     if not isinstance(body, dict):
