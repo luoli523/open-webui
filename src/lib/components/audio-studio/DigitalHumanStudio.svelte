@@ -1,0 +1,209 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { toast } from 'svelte-sonner';
+	import { user } from '$lib/stores';
+	import type { Job } from '$lib/apis/audio-studio';
+	import {
+		videoStudio,
+		videoPost,
+		type Portrait,
+		type Provider,
+		type VideoJob,
+		type Receipt
+	} from '$lib/apis/video-studio';
+	import StudioMedia from './StudioMedia.svelte';
+	import VideoJobResult from './VideoJobResult.svelte';
+	import VideoProviderSettings from './VideoProviderSettings.svelte';
+	export let audioJobs: Job[] = [];
+	export let initialAudio = '';
+	export let initialPortrait = '';
+	export let managePortraits: () => void = () => {};
+	export let createAudio: (portrait?: Portrait) => void = () => {};
+	let portraits: Portrait[] = [];
+	let providers: Provider[] = [];
+	let jobs: VideoJob[] = [];
+	let receipts: Receipt[] = [];
+	let portrait = initialPortrait;
+	let audio = initialAudio;
+	let provider = 'heygen';
+	let ratio = '16:9';
+	let consent = false;
+	let lastSelection = '';
+	let busy = false;
+	let loading = true;
+	let refreshing = false;
+	let error = '';
+	$: engine = providers.find((p) => p.id === provider);
+	$: selectedPortrait = portraits.find((p) => p.id === portrait);
+	$: completedAudio = audioJobs.filter((j) => j.status === 'completed');
+	$: selection = `${portrait}:${selectedPortrait?.version}:${audio}:${provider}:${ratio}`;
+	$: if (selection !== lastSelection) {
+		consent = false;
+		lastSelection = selection;
+	}
+	async function refresh() {
+		if (refreshing) return;
+		refreshing = true;
+		try {
+			const [people, engines, videos] = await Promise.all([
+				videoStudio('/portraits'),
+				videoStudio('/providers'),
+				videoStudio('/jobs')
+			]);
+			portraits = people;
+			providers = engines;
+			jobs = videos;
+			if (!portrait && portraits.length) portrait = portraits[0].id;
+			if (!audio && completedAudio.length) audio = completedAudio[0].id;
+			if ($user?.role === 'admin') receipts = await videoStudio('/deliveries');
+			error = '';
+		} catch (e) {
+			error = `${e}`;
+		} finally {
+			refreshing = false;
+			loading = false;
+		}
+	}
+	async function generate() {
+		busy = true;
+		try {
+			await videoPost('/jobs', {
+				portrait_id: portrait,
+				audio_job_id: audio,
+				provider_id: provider,
+				aspect_ratio: ratio,
+				consent
+			});
+			consent = false;
+			await refresh();
+			toast.success('已提交预览，请在视频记录中查看');
+		} catch (e) {
+			toast.error(`${e}`);
+		} finally {
+			busy = false;
+		}
+	}
+	onMount(() => {
+		refresh();
+		const timer = setInterval(refresh, 5000);
+		return () => clearInterval(timer);
+	});
+</script>
+
+<div class="video-columns grid min-w-0 grid-cols-1 items-start gap-8">
+	<section class="min-w-0 space-y-5">
+		<div>
+			<h2 class="font-semibold">创建数字人视频</h2>
+			<p class="mt-2 text-sm leading-6 text-gray-500">选好人物和配音，先看短预览，再生成完整版。</p>
+		</div>
+		{#if error}<p role="alert" class="text-sm text-red-600">
+				{error} <button class="underline" on:click={refresh}>重新连接</button>
+			</p>{/if}
+		{#if loading}<p role="status" class="text-sm text-gray-500">正在加载…</p>{/if}
+		<label class="block text-sm"
+			>视频引擎<select
+				bind:value={provider}
+				class="mt-2 w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
+				>{#each providers as p}<option value={p.id}
+						>{p.name}{p.cloud ? ' · 云端' : ' · 本地'}</option
+					>{/each}</select
+			></label
+		>
+		{#if engine && (!engine.configured || !engine.enabled)}<p
+				class="rounded-lg bg-gray-100 p-3 text-sm dark:bg-gray-800"
+			>
+				{engine.configured ? '视频引擎已暂停新任务。' : '尚未配置视频引擎。'}{$user?.role ===
+				'admin'
+					? '请在下方设置中配置并启用。'
+					: '请联系管理员。'}
+			</p>{/if}
+		<label class="block text-sm"
+			>选择人物<select
+				bind:value={portrait}
+				class="mt-2 w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
+				><option value="" disabled>请选择人物</option
+				>{#each portraits.filter((p) => engine?.input_types.includes(p.input_type)) as p}<option
+						value={p.id}>{p.name}</option
+					>{/each}</select
+			></label
+		>
+		<button class="text-sm underline" on:click={managePortraits}>上传 / 管理人物</button>
+		{#if selectedPortrait}<StudioMedia
+				path={`/portraits/${portrait}/image`}
+				version={selectedPortrait.version}
+				alt={selectedPortrait.name}
+			/>{/if}
+		<label class="block text-sm"
+			>选择已生成的播报<select
+				bind:value={audio}
+				class="mt-2 w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
+				><option value="" disabled>请选择播报</option>{#each completedAudio as item}<option
+						value={item.id}>{item.title} · {item.voice_name}</option
+					>{/each}</select
+			></label
+		>
+		{#if audio}<StudioMedia path={`/jobs/${audio}/audio?format=mp3`} kind="audio" />{/if}
+		<button class="text-sm underline" on:click={() => createAudio(selectedPortrait)}
+			>使用人物默认音色创建新播报</button
+		>
+		<label class="block text-sm"
+			>画面比例<select
+				bind:value={ratio}
+				class="mt-2 w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
+				>{#each engine?.aspect_ratios ?? [] as value}<option {value}
+						>{value === '16:9' ? '横屏 16:9' : value === '9:16' ? '竖屏 9:16' : value}</option
+					>{/each}</select
+			></label
+		>
+		<p class="text-xs leading-5 text-gray-500">
+			预览取开头最多15秒（{engine?.preview_resolution ??
+				'720p'}），完整版使用完整配音（{engine?.final_resolution ??
+				'1080p'}）。{engine?.duration_note ?? ''}
+		</p>
+		<label
+			class="flex items-start gap-2 rounded-lg border border-gray-200 p-3 text-sm leading-6 dark:border-gray-700"
+			><input type="checkbox" bind:checked={consent} class="mt-1" /><span
+				>我有权使用所选肖像和配音，{engine?.cloud
+					? '同意将照片与成品配音上传至所选引擎，'
+					: ''}{engine?.paid
+					? '确认本次预览会产生费用，按引擎账户实际计费。'
+					: '确认生成预览。'}</span
+			></label
+		>
+		<button
+			disabled={busy ||
+				!consent ||
+				!audio ||
+				!selectedPortrait ||
+				!engine?.enabled ||
+				!engine?.configured}
+			on:click={generate}
+			class="w-full rounded-xl bg-gray-900 p-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-white dark:text-black"
+			>{busy ? '正在提交…' : '生成短预览'}</button
+		>
+		{#if $user?.role === 'admin'}<VideoProviderSettings onchange={refresh} />{/if}
+	</section>
+	<section class="min-w-0 space-y-4">
+		<div class="flex items-center justify-between">
+			<h2 class="font-semibold">视频记录</h2>
+			<button class="text-sm underline" disabled={refreshing} on:click={refresh}>刷新</button>
+		</div>
+		{#each jobs as job (job.id)}<VideoJobResult
+				{job}
+				{refresh}
+				isAdmin={$user?.role === 'admin'}
+				hasFinal={jobs.some((j) => j.preview_id === job.id)}
+				delivery={receipts.find((r) => r.job_id === job.id)}
+			/>{:else}{#if !loading && !error}<p class="py-12 text-center text-sm leading-7 text-gray-500">
+					还没有视频记录。<br />选择人物和播报，生成第一段预览。
+				</p>{/if}{/each}
+	</section>
+</div>
+
+<style>
+	@container audio-studio (min-width: 56rem) {
+		.video-columns {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+		}
+	}
+</style>

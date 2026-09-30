@@ -6,6 +6,7 @@
 	export let canSend = false;
 	export let delivery: Delivery | undefined = undefined;
 	export let refresh: () => Promise<void>;
+	export let onvideo: (job: Job) => void = () => {};
 	let url = '';
 	let busy = false;
 	let sending = false;
@@ -101,6 +102,7 @@
 		</p>{/if}
 	{#if url}<audio src={url} controls class="w-full"><track kind="captions" /></audio>{/if}
 	{#if job.status === 'completed'}<div class="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+			<button on:click={() => onvideo(job)}>生成数字人视频</button>
 			<button disabled={busy} on:click={() => audio()}>试听</button><button
 				disabled={busy}
 				on:click={() => audio(true)}>下载 MP3</button

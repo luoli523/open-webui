@@ -6,8 +6,12 @@
 	import VoiceLibrary from '$lib/components/audio-studio/VoiceLibrary.svelte';
 	import JobResult from '$lib/components/audio-studio/JobResult.svelte';
 	import TelegramSettings from '$lib/components/audio-studio/TelegramSettings.svelte';
+	import PortraitLibrary from '$lib/components/audio-studio/PortraitLibrary.svelte';
+	import DigitalHumanStudio from '$lib/components/audio-studio/DigitalHumanStudio.svelte';
 	import { studio, post, type Voice, type Job, type Delivery } from '$lib/apis/audio-studio';
 	let tab = 'generate';
+	let videoAudio = '';
+	let videoPortrait = '';
 	let voices: Voice[] = [];
 	let jobs: Job[] = [];
 	let deliveries: Delivery[] = [];
@@ -84,12 +88,12 @@
 	<main class="studio-content min-h-0 min-w-0 flex-1 overflow-y-auto">
 		<div class="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
 			<div>
-				<p class="text-sm text-gray-500">选择一个声音，让文字变成播报。</p>
+				<p class="text-sm text-gray-500">从文字播报到人物口播，保存声音与形象。</p>
 				<nav
-					class="mt-4 flex gap-5 border-b border-gray-200 dark:border-gray-800"
+					class="mt-4 flex flex-wrap gap-x-5 border-b border-gray-200 dark:border-gray-800"
 					aria-label="工作台页面"
 				>
-					{#each [{ id: 'generate', label: '生成播报' }, { id: 'voices', label: '我的音色' }] as item}<button
+					{#each [{ id: 'generate', label: '生成播报' }, { id: 'voices', label: '我的音色' }, { id: 'video', label: '数字人视频' }, { id: 'portraits', label: '我的人物' }] as item}<button
 							class="border-b-2 px-1 py-3 text-sm {tab === item.id
 								? 'border-gray-900 font-medium dark:border-white'
 								: 'border-transparent text-gray-500'}"
@@ -104,6 +108,27 @@
 				</div>{/if}
 			{#if loading}<p role="status" class="py-8 text-sm text-gray-500">正在加载工作台…</p>
 			{:else if tab === 'voices'}<VoiceLibrary {voices} refresh={loadVoices} />
+			{:else if tab === 'portraits'}<PortraitLibrary
+					{voices}
+					onuse={(p) => {
+						videoPortrait = p.id;
+						if (voices.some((v) => v.id === p.default_voice_id)) voice = p.default_voice_id;
+						tab = 'video';
+					}}
+				/>
+			{:else if tab === 'video'}<DigitalHumanStudio
+					audioJobs={jobs}
+					initialAudio={videoAudio}
+					initialPortrait={videoPortrait}
+					managePortraits={() => (tab = 'portraits')}
+					createAudio={(p) => {
+						if (p) {
+							videoPortrait = p.id;
+							if (voices.some((v) => v.id === p.default_voice_id)) voice = p.default_voice_id;
+						}
+						tab = 'generate';
+					}}
+				/>
 			{:else}<div class="studio-columns grid min-w-0 grid-cols-1 items-start gap-8">
 					<section class="min-w-0 space-y-5">
 						<h2 class="font-semibold">创建播报</h2>
@@ -167,6 +192,10 @@
 						{#each jobs as job (job.id)}<JobResult
 								{job}
 								{refresh}
+								onvideo={(item) => {
+									videoAudio = item.id;
+									tab = 'video';
+								}}
 								canSend={$user?.role === 'admin' && telegram}
 								delivery={deliveries.find((d) => d.job_id === job.id)}
 							/>{:else}<div class="py-12 text-center text-sm leading-7 text-gray-500">
