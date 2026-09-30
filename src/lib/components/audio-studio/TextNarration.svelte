@@ -4,6 +4,7 @@
 	import { studio, post, type Job, type Voice } from '$lib/apis/audio-studio';
 	import StudioMedia from './StudioMedia.svelte';
 	import WorkingIndicator from './WorkingIndicator.svelte';
+	import VoicePreview from './VoicePreview.svelte';
 	export let voices: Voice[] = [];
 	export let defaultVoice = '';
 	export let onready: (id: string) => void = () => {};
@@ -115,6 +116,7 @@
 				>{/each}</select
 		></label
 	>
+	<VoicePreview voice={voices.find((v) => v.id === voice)} />
 	<div class="flex flex-wrap items-center justify-between gap-3 text-sm">
 		<label
 			>语速 <select

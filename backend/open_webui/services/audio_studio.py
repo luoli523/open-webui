@@ -137,6 +137,8 @@ async def worker():
         while True:
             try:
                 jobs = await records.listing(status='queued', limit=10000)
+                samples = await records.listing(kind='sample', status='queued', limit=10000)
+                jobs = sorted(jobs + samples, key=lambda job: job['created_at'], reverse=True)
                 if jobs:
                     await execute(jobs[-1])
                 else:

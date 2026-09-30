@@ -9,6 +9,7 @@
 	import PortraitLibrary from '$lib/components/audio-studio/PortraitLibrary.svelte';
 	import DigitalHumanStudio from '$lib/components/audio-studio/DigitalHumanStudio.svelte';
 	import WorkingIndicator from '$lib/components/audio-studio/WorkingIndicator.svelte';
+	import VoicePreview from '$lib/components/audio-studio/VoicePreview.svelte';
 	import { studio, post, type Voice, type Job, type Delivery } from '$lib/apis/audio-studio';
 	let tab = 'generate';
 	let videoAudio = '';
@@ -70,7 +71,7 @@
 	});
 </script>
 
-<svelte:head><title>语音工作台 · {$WEBUI_NAME}</title></svelte:head>
+<svelte:head><title>视频语音工作台 · {$WEBUI_NAME}</title></svelte:head>
 <div
 	class="flex h-screen max-h-[100dvh] w-full min-w-0 flex-col overflow-hidden transition-width duration-200 ease-in-out {$showSidebar
 		? 'md:max-w-[calc(100%-var(--sidebar-width))]'
@@ -84,7 +85,7 @@
 			class="rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-800"
 			on:click={() => showSidebar.set(!$showSidebar)}><Sidebar className="size-5" /></button
 		>
-		<h1 class="text-lg font-semibold">语音工作台</h1>
+		<h1 class="text-lg font-semibold">视频语音工作台</h1>
 	</header>
 	<main class="studio-content min-h-0 min-w-0 flex-1 overflow-y-auto">
 		<div class="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
@@ -142,6 +143,7 @@
 								></select
 							></label
 						>
+						<VoicePreview voice={voices.find((v) => v.id === voice)} />
 						<label class="block text-sm"
 							>标题 <span class="text-gray-500">（选填）</span><input
 								class="mt-2 w-full rounded-lg border border-gray-200 bg-transparent p-3 dark:border-gray-700"

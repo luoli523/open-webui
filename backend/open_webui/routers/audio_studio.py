@@ -1,6 +1,7 @@
 """Authenticated audio workspace. Local TTS remains a private loopback service."""
 
 import asyncio
+import hashlib
 import re
 
 import aiohttp
@@ -19,6 +20,70 @@ send_tasks = set()
 @router.get('/voices')
 async def voices(user=Depends(get_verified_user)):
     return await service.voices(user)
+
+
+SAMPLE_TEXT = '你好，欢迎来到视频语音工作台。这是我的声音，希望为你带来清晰、自然的播报。'
+
+
+@router.post('/voices/{id}/sample')
+async def create_sample(id: str, user=Depends(get_verified_user)):
+    from sqlalchemy.exc import IntegrityError
+
+    voice = await service.voice_for(user, id)
+    version = voice.get('version')
+    key = hashlib.sha256(f'{user.id}:{voice["id"]}:{version}:{SAMPLE_TEXT}:1'.encode()).hexdigest()
+    sample = await records.get(key, user.id)
+    if sample:
+        if sample['status'] == 'completed' and not service.audio_path(key).is_file():
+            await records.transition(key, ['completed'], 'failed', error='试听文件不存在')
+            sample = await records.get(key, user.id)
+        if sample['status'] not in ('failed', 'interrupted'):
+            return sample
+    pending = await records.listing(user.id, kind='sample', status='queued', limit=8)
+    if len(pending) >= 8:
+        raise HTTPException(429, '试听任务较多，请等待当前试听生成完成')
+    if sample:
+        await records.transition(key, ['failed', 'interrupted'], 'queued', error=None)
+        return await records.get(key, user.id)
+    try:
+        return await records.create(
+            user.id,
+            'sample',
+            dict(
+                text=SAMPLE_TEXT,
+                title=f'{voice["name"]} · 音色试听',
+                voice_id=voice['id'],
+                voice_name=voice['name'],
+                voice_version=version if voice['kind'] == 'clone' else None,
+                speed=1,
+            ),
+            id=key,
+        )
+    except IntegrityError:
+        return await records.get(key, user.id)
+
+
+async def owned_sample(id, user):
+    sample = await records.get(id, user.id)
+    if not sample or sample['kind'] != 'sample':
+        raise HTTPException(404, '试听不存在')
+    await service.voice_for(user, sample['voice_id'])
+    return sample
+
+
+@router.get('/voice-samples/{id}')
+async def sample_status(id: str, user=Depends(get_verified_user)):
+    return await owned_sample(id, user)
+
+
+@router.get('/voice-samples/{id}/audio')
+async def sample_audio(id: str, user=Depends(get_verified_user)):
+    sample = await owned_sample(id, user)
+    if sample['status'] != 'completed' or not service.audio_path(sample['id']).is_file():
+        raise HTTPException(409, '试听音频尚未准备好')
+    return FileResponse(
+        service.audio_path(sample['id']), media_type='audio/mpeg', headers={'Cache-Control': 'private, no-store'}
+    )
 
 
 async def form_data(file, name=None, ref_text='', owner_id=None):

@@ -4,6 +4,8 @@
 	import { toast } from 'svelte-sonner';
 	import { studio, type Voice } from '$lib/apis/audio-studio';
 	import VoiceRecorder from './VoiceRecorder.svelte';
+	import VoicePreview from './VoicePreview.svelte';
+	import FilePicker from './FilePicker.svelte';
 	export let voices: Voice[] = [];
 	export let refresh: () => Promise<void>;
 	let editing: Voice | null = null;
@@ -18,7 +20,6 @@
 	let previewId = '';
 	let generation = 0;
 	let disposed = false;
-	let fileInput: HTMLInputElement;
 	let deleting = '';
 	function selectFile(next: File, transcript = '') {
 		generation += 1;
@@ -35,7 +36,6 @@
 		generation += 1;
 		if (preview) URL.revokeObjectURL(preview);
 		preview = '';
-		if (fileInput) fileInput.value = '';
 	}
 	function edit(v: Voice) {
 		reset();
@@ -124,19 +124,14 @@
 			>
 		</div>
 		{#if source === 'upload'}
-			<label class="block rounded-xl border border-dashed border-gray-300 p-5 dark:border-gray-700"
-				><span class="mb-3 block text-sm">选择清晰的单人录音 · 1–120 秒，最大 20 MB</span><input
-					bind:this={fileInput}
-					type="file"
-					accept="audio/*,.m4a,.wav,.mp3,.webm"
-					disabled={saving}
-					on:change={(e) => {
-						const f = e.currentTarget.files?.[0];
-						if (f) selectFile(f);
-					}}
-					class="max-w-full text-sm"
-				/></label
-			>
+			<FilePicker
+				label="选择录音文件"
+				accept="audio/*,.m4a,.wav,.mp3,.webm"
+				hint="清晰的单人录音 · 1–120 秒，最大 20 MB"
+				fileName={file?.name ?? ''}
+				disabled={saving || transcribing}
+				onselect={selectFile}
+			/>
 		{:else}<VoiceRecorder onrecord={selectFile} />{/if}
 		{#if preview}<audio class="w-full" src={preview} controls preload="metadata"
 				><track kind="captions" /></audio
@@ -180,27 +175,33 @@
 		</div>
 	</section>
 	<section class="min-w-0">
-		<h2 class="mb-4 font-semibold">已保存的声音</h2>
+		<h2 class="mb-4 font-semibold">全部音色 · 可逐一试听</h2>
 		<div class="divide-y divide-gray-100 dark:divide-gray-800">
-			{#each voices.filter((v) => v.kind === 'clone') as voice (voice.id)}
+			{#each voices as voice (voice.id)}
 				<div class="space-y-3 py-4">
 					<div class="flex items-start justify-between gap-3">
 						<div>
 							<p class="font-medium">{voice.name}</p>
 							<p class="mt-1 text-xs text-gray-500">
-								{voice.mode === 'reference' ? '录音 + 参考原文' : '仅参考录音'} · {voice.owner_id
-									? '个人音色'
-									: '已有音色'}
+								{voice.kind === 'preset'
+									? '预设音色'
+									: voice.mode === 'reference'
+										? '录音 + 参考原文'
+										: '仅参考录音'} · {voice.owner_id ? '个人音色' : '已有音色'}
 							</p>
 						</div>
-						<button class="text-sm underline" on:click={() => listen(voice)}>试听录音</button>
+						{#if voice.kind === 'clone'}<button
+								class="text-sm underline"
+								on:click={() => listen(voice)}>原始参考录音</button
+							>{/if}
 					</div>
 					{#if previewId === voice.id && referencePreview}<audio
 							class="w-full"
 							src={referencePreview}
 							controls><track kind="captions" /></audio
 						>{/if}
-					{#if voice.owner_id === $user?.id || $user?.role === 'admin'}<div
+					<VoicePreview {voice} />
+					{#if voice.kind === 'clone' && (voice.owner_id === $user?.id || $user?.role === 'admin')}<div
 							class="flex gap-4 text-sm"
 						>
 							<button on:click={() => edit(voice)}>编辑</button><button

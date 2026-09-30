@@ -4,14 +4,15 @@
 	import type { Voice } from '$lib/apis/audio-studio';
 	import { videoStudio, type Portrait } from '$lib/apis/video-studio';
 	import StudioMedia from './StudioMedia.svelte';
+	import VoicePreview from './VoicePreview.svelte';
+	import FilePicker from './FilePicker.svelte';
 	export let voices: Voice[] = [];
 	export let onuse: (portrait: Portrait) => void = () => {};
 	let portraits: Portrait[] = [];
 	let editing: Portrait | null = null;
 	let name = '';
 	let voice = '';
-	let files: FileList;
-	let input: HTMLInputElement;
+	let file: File | null = null;
 	let busy = false;
 	let error = '';
 	let loading = true;
@@ -29,10 +30,7 @@
 		editing = item;
 		name = item?.name ?? '';
 		voice = item?.default_voice_id ?? '';
-		if (input) {
-			input.value = '';
-			files = input.files as FileList;
-		}
+		file = null;
 	}
 	async function save() {
 		busy = true;
@@ -40,7 +38,7 @@
 			const form = new FormData();
 			form.set('name', name);
 			form.set('default_voice_id', voice);
-			if (files?.[0]) form.set('file', files[0]);
+			if (file) form.set('file', file);
 			if (editing) form.set('revision', String(editing.revision));
 			await videoStudio(editing ? `/portraits/${editing.id}` : '/portraits', {
 				method: editing ? 'PUT' : 'POST',
@@ -87,16 +85,14 @@
 					placeholder="例如：桂哥 · 正装"
 				/></label
 			>
-			<label class="block text-sm"
-				>人物照片{editing ? '（选填，上传后替换）' : ''}<input
-					bind:this={input}
-					bind:files
-					type="file"
-					accept="image/jpeg,image/png"
-					required={!editing}
-					class="mt-2 block w-full text-sm"
-				/></label
-			>
+			<FilePicker
+				label={editing ? '选择替换照片' : '选择人物照片'}
+				accept="image/jpeg,image/png"
+				fileName={file?.name ?? ''}
+				disabled={busy}
+				hint={editing ? '不选择新照片时保留已有照片。' : '上传正脸、嘴部清晰的单人照片。'}
+				onselect={(next) => (file = next)}
+			/>
 			<p class="text-xs leading-5 text-gray-500">
 				JPG / PNG，不超过20 MB；短边至少256像素。保留原图比例，超大图片会缩小。
 			</p>
@@ -108,10 +104,11 @@
 						>{/each}</select
 				></label
 			>
+			<VoicePreview voice={voices.find((v) => v.id === voice)} />
 			<div class="flex flex-wrap gap-3">
 				<button
 					type="submit"
-					disabled={busy || !name.trim()}
+					disabled={busy || !name.trim() || (!editing && !file)}
 					class="rounded-lg bg-gray-900 px-5 py-3 text-sm text-white disabled:opacity-40 dark:bg-white dark:text-black"
 					>{busy ? '正在保存…' : '保存人物'}</button
 				>{#if editing}<button

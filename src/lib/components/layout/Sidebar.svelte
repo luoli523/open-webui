@@ -193,7 +193,7 @@
 
 	const getMenuItemMeta = (id) => {
 		const items = {
-			'audio-studio': { label: '语音工作台', href: '/audio-studio', iconType: 'audio' },
+			'audio-studio': { label: '视频语音工作台', href: '/audio-studio', iconType: 'audio' },
 			notes: { label: $i18n.t('Notes'), href: '/notes', iconType: 'note' },
 			workspace: { label: $i18n.t('Workspace'), href: '/workspace', iconType: 'workspace' },
 			automations: { label: $i18n.t('Automations'), href: '/automations', iconType: 'automations' },
