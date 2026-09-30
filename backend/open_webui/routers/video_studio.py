@@ -4,10 +4,11 @@ import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from open_webui.models import video_studio as records
 from open_webui.services import audio_studio, video_studio as service, video_media as media, video_delivery
+from open_webui.services import video_captions as captions
 from open_webui.services.video_providers import PROVIDERS, provider_for
 from open_webui.services.video_providers.base import ProviderError
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -239,7 +240,7 @@ async def deliveries(user=Depends(get_admin_user)):
 
 
 @router.post('/jobs/{id}/telegram')
-async def telegram(id: str, user=Depends(get_admin_user)):
+async def telegram(id: str, variant: Literal['original', 'captioned'] = 'original', user=Depends(get_admin_user)):
     item = await service.owned(id, user)
     if item['status'] != 'completed':
         raise HTTPException(409, '视频尚未生成完成')
@@ -247,6 +248,11 @@ async def telegram(id: str, user=Depends(get_admin_user)):
     async def deliver():
         async with service.asset_lock():
             current = await service.owned(id, user)
+            if variant == 'captioned':
+                source, caption = await captions.artifact(id, user, 'mp4')
+                return await video_delivery.send(
+                    current, user, source=source, video_hash=caption['render_hash'], variant=variant
+                )
             return await video_delivery.send(current, user)
 
     task = asyncio.create_task(deliver())
@@ -274,3 +280,38 @@ async def resolve_delivery(id: str, form: ResolveDelivery, user=Depends(get_admi
     if not result:
         raise HTTPException(409, '发送状态已变化，请刷新')
     return service.public(result)
+
+
+@router.get('/jobs/{id}/captions')
+async def get_captions(id: str, user=Depends(get_verified_user)):
+    return await captions.get(id, user)
+
+
+@router.post('/jobs/{id}/captions')
+async def generate_captions(id: str, form: captions.Generate, user=Depends(get_verified_user)):
+    return await captions.generate(id, user, form)
+
+
+@router.put('/jobs/{id}/captions')
+async def save_captions(id: str, form: captions.Edit, user=Depends(get_verified_user)):
+    return await captions.save(id, user, form)
+
+
+@router.post('/jobs/{id}/captions/render')
+async def render_captions(id: str, form: captions.Render, user=Depends(get_verified_user)):
+    return await captions.render(id, user, form)
+
+
+@router.get('/jobs/{id}/captions/file')
+async def caption_file(id: str, format: Literal['srt', 'vtt', 'ass', 'mp4'] = 'srt', user=Depends(get_verified_user)):
+    content, item = await captions.artifact(id, user, format)
+    filename = f'subtitles-v{item["version"]}.{format}'
+    if format == 'mp4':
+        return FileResponse(
+            content, media_type='video/mp4', filename=filename, headers={'Cache-Control': 'private, no-store'}
+        )
+    return Response(
+        content,
+        media_type='text/vtt' if format == 'vtt' else 'text/plain',
+        headers={'Cache-Control': 'private, no-store', 'Content-Disposition': f'attachment; filename="{filename}"'},
+    )

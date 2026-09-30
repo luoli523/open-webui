@@ -478,8 +478,12 @@ async def lifespan(app: FastAPI):
     from open_webui.services.video_studio import worker as video_worker
     video_studio_worker = asyncio.create_task(video_worker())
 
+    from open_webui.services.video_captions import worker as caption_worker
+    caption_studio_worker = asyncio.create_task(caption_worker())
+
     yield
 
+    await shutdown(caption_studio_worker)
     await shutdown(studio_worker)
     await shutdown(video_studio_worker)
     await publish_event(app, EVENTS.SYSTEM_SHUTDOWN_STARTED, source='system')

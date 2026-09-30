@@ -11,16 +11,17 @@ from open_webui.services.audio_studio import telegram_config
 from open_webui.services.video_media import path
 
 
-async def send(job, user):
+async def send(job, user, *, source=None, video_hash=None, variant='original'):
     config = await telegram_config()
     if not config.get('token') or not config.get('chat_id'):
         raise HTTPException(400, '请先在生成播报页配置 Telegram')
-    source = path(job['id'] + '.mp4')
+    source = source or path(job['id'] + '.mp4')
+    video_hash = video_hash or job['video_hash']
     if not source.is_file():
         raise HTTPException(404, '视频文件不存在')
     if source.stat().st_size > 49 * 1024 * 1024:
         raise HTTPException(413, '视频超过工作台 Telegram 49 MB 发送限制，请下载后手动发送')
-    id = hashlib.sha256(f'{user.id}:{config["chat_id"]}:{job["video_hash"]}'.encode()).hexdigest()
+    id = hashlib.sha256(f'{user.id}:{config["chat_id"]}:{video_hash}'.encode()).hexdigest()
     receipt = await records.get(id, user.id)
     if receipt:
         if receipt['status'] == 'sent':
@@ -33,7 +34,7 @@ async def send(job, user):
     else:
         try:
             receipt = await records.create(
-                user.id, 'delivery', dict(job_id=job['id'], chat_id=config['chat_id']), 'sending', id
+                user.id, 'delivery', dict(job_id=job['id'], chat_id=config['chat_id'], variant=variant), 'sending', id
             )
         except IntegrityError:
             raise HTTPException(409, '该视频已在发送，请刷新') from None

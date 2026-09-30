@@ -46,6 +46,7 @@ PUBLIC_FIELDS = (
     'fingerprint',
     'job_id',
     'message_id',
+    'variant',
     'approved_at',
     'attempt',
 )
@@ -115,6 +116,7 @@ async def cleanup_deleted():
                     '-thumb.tmp.jpg',
                 )
             ]
+            names.extend(file.name for file in media.directory().glob(item['id'] + '-caption*') if file.is_file())
             names.extend(
                 name
                 for name in (item.get('audio_asset'), item.get('portrait_asset'))
@@ -136,6 +138,11 @@ async def delete_record(id, user):
         item = await owned(id, user)
         if item['status'] not in ('completed', 'failed'):
             raise HTTPException(409, '请等待生成结束，或先核实提交结果，再删除记录')
+        from open_webui.services.video_captions import identifier
+
+        caption = await records.get(identifier(id), user.id)
+        if caption and caption['status'] in ('queued', 'running'):
+            raise HTTPException(409, '请等待字幕处理完成后删除视频')
         deliveries = await records.listing(user.id, kind='delivery', statuses=['sending', 'unknown'], limit=10000)
         if any(receipt.get('job_id') == id for receipt in deliveries):
             raise HTTPException(409, '请等待 TG 发送完成，或先核实发送结果，再删除记录')
@@ -236,6 +243,7 @@ async def _create_preview(user, form):
     data = dict(
         **inputs,
         title=source_job['title'],
+        source_text=source_job.get('text', ''),
         credit=source_job.get('credit'),
         portrait_name=portrait['name'],
         audio_asset=snapshot.name,
@@ -293,6 +301,7 @@ async def _create_final(user, preview, expected_fingerprint):
     data = {k: preview[k] for k in fields}
     data.update(
         credit=preview.get('credit'),
+        source_text=preview.get('source_text', ''),
         stage='final',
         preview_id=preview['id'],
         resolution=preview['final_resolution'],
