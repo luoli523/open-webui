@@ -29,6 +29,7 @@
 	}
 	async function listen() {
 		if (!voice || busy) return;
+		announce();
 		if (url) {
 			try {
 				await player?.play();
@@ -78,7 +79,11 @@
 	}
 	onMount(() => {
 		const stopOther = (event: Event) => {
-			if ((event as CustomEvent).detail !== instance) player?.pause();
+			if ((event as CustomEvent).detail !== instance) {
+				player?.pause();
+				controller?.abort();
+				busy = false;
+			}
 		};
 		window.addEventListener('studio-voice-preview', stopOther);
 		return () => window.removeEventListener('studio-voice-preview', stopOther);
