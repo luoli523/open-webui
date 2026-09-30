@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
@@ -64,13 +65,77 @@ async def owned(id, user, kind='job'):
     return item
 
 
-async def restore_record(item):
-    # Reusing identical inputs restores the original task, never creates a paid duplicate.
-    if item.get('deleted_at'):
-        item = await records.change(item, deleted_at=None)
-        if not item:
-            raise HTTPException(409, '记录已变化，请刷新重试')
-    return item
+@asynccontextmanager
+async def asset_lock():
+    # Serialize creation and cleanup across server processes.
+    import fcntl
+
+    with (media.directory() / 'assets.lock').open('a') as lock:
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                await asyncio.sleep(0.05)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+async def available_id(id, user_id):
+    existing = await records.get(id, user_id)
+    while existing and existing.get('deleted_at'):
+        id = fingerprint({'recreate_after': id})
+        existing = await records.get(id, user_id)
+    return id, existing
+
+
+async def cleanup_deleted():
+    async with asset_lock():
+        items = await records.media_records()
+        referenced = set()
+        for item in items:
+            if item['kind'] == 'portrait' and item['status'] == 'active':
+                referenced.add(item.get('asset'))
+            elif item['kind'] == 'job' and not item.get('deleted_at'):
+                referenced.update([item.get('audio_asset'), item.get('portrait_asset')])
+        freed = 0
+        for item in items:
+            if item['kind'] != 'job' or not item.get('deleted_at'):
+                continue
+            names = [item['id'] + suffix for suffix in ('.mp4', '.tmp.mp4', '-preview.mp3', '-preview.mp3.tmp.mp3')]
+            names.extend(
+                name
+                for name in (item.get('audio_asset'), item.get('portrait_asset'))
+                if name and name not in referenced
+            )
+            for name in names:
+                target = media.path(name)
+                try:
+                    size = target.stat().st_size
+                    target.unlink()
+                    freed += size
+                except FileNotFoundError:
+                    pass
+        return freed
+
+
+async def delete_record(id, user):
+    async with asset_lock():
+        item = await owned(id, user)
+        if item['status'] not in ('completed', 'failed'):
+            raise HTTPException(409, '请等待生成结束，或先核实提交结果，再删除记录')
+        deliveries = await records.listing(user.id, kind='delivery', statuses=['sending', 'unknown'], limit=10000)
+        if any(receipt.get('job_id') == id for receipt in deliveries):
+            raise HTTPException(409, '请等待 TG 发送完成，或先核实发送结果，再删除记录')
+        if not await records.change(item, deleted_at=int(time.time())):
+            raise HTTPException(409, '任务状态已变化，请刷新后重试')
+    try:
+        return {'ok': True, 'freed_bytes': await cleanup_deleted(), 'cleanup_pending': False}
+    except OSError:
+        log.warning('Video cleanup deferred; worker will retry')
+        return {'ok': True, 'freed_bytes': 0, 'cleanup_pending': True}
 
 
 async def settings():
@@ -104,6 +169,11 @@ def fingerprint(data):
 
 
 async def create_preview(user, form):
+    async with asset_lock():
+        return await _create_preview(user, form)
+
+
+async def _create_preview(user, form):
     config = await settings()
     if not config.get('enabled') or not config.get('config_version'):
         raise HTTPException(409, '请管理员先配置并启用视频引擎')
@@ -143,9 +213,9 @@ async def create_preview(user, form):
     stamp = fingerprint(inputs)
     # Same immutable inputs have one preview; repeat paid generation is an explicit retry action.
     id = fingerprint({'user': user.id, 'preview': stamp})
-    existing = await records.get(id, user.id)
+    id, existing = await available_id(id, user.id)
     if existing:
-        return await restore_record(existing)
+        return existing
     waiting = await records.listing(user.id, statuses=ACTIVE, limit=8)
     if len(waiting) >= 8:
         raise HTTPException(429, '视频任务过多，请稍后再试')
@@ -176,6 +246,12 @@ async def create_preview(user, form):
 
 
 async def create_final(user, preview, expected_fingerprint):
+    async with asset_lock():
+        preview = await owned(preview['id'], user)
+        return await _create_final(user, preview, expected_fingerprint)
+
+
+async def _create_final(user, preview, expected_fingerprint):
     if preview['stage'] != 'preview' or preview['status'] != 'completed':
         raise HTTPException(409, '请先完成并观看预览')
     if expected_fingerprint != preview['fingerprint']:
@@ -184,9 +260,9 @@ async def create_final(user, preview, expected_fingerprint):
     if not config.get('enabled'):
         raise HTTPException(409, '管理员已暂停新的视频生成')
     id = fingerprint({'preview': preview['id'], 'attempt': preview['attempt'], 'stage': 'final'})
-    existing = await records.get(id, user.id)
+    id, existing = await available_id(id, user.id)
     if existing:
-        return await restore_record(existing)
+        return existing
     fields = (
         'portrait_asset',
         'portrait_hash',
@@ -355,8 +431,15 @@ async def worker():
             )
         for item in await records.listing(kind='delivery', statuses=['sending'], limit=10000):
             await records.change(item, 'unknown', error='服务重启，请到 Telegram 核对收件结果')
+        next_cleanup = 0
         while True:
             try:
+                if time.time() >= next_cleanup:
+                    try:
+                        await cleanup_deleted()
+                    except OSError:
+                        log.warning('Video file cleanup failed; retrying later')
+                    next_cleanup = time.time() + 60
                 jobs = await records.listing(statuses=['queued', 'processing'], limit=10000, oldest=True)
                 for job in jobs:
                     if job.get('next_poll', 0) <= time.time():

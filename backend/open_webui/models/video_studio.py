@@ -82,3 +82,10 @@ async def change(item, status=None, **data):
         await db.commit()
         if result.rowcount == 1:
             return await get(item['id'])
+
+
+async def media_records():
+    """Read all media references, without pagination, for shared-asset cleanup."""
+    async with get_async_db_context() as db:
+        rows = await db.execute(select(VideoRecord).where(VideoRecord.kind.in_(['job', 'portrait'])))
+        return [serialize(row) for row in rows.scalars()]

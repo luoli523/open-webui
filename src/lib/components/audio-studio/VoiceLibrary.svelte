@@ -21,6 +21,47 @@
 	let generation = 0;
 	let disposed = false;
 	let deleting = '';
+	const tabs = [
+		{ id: 'clone', label: '我的音色' },
+		{ id: 'preset', label: '内置音色' },
+		{ id: 'voicevox', label: '日语动漫' }
+	];
+	let activeTab = 'clone';
+	let search = '';
+	let page = 1;
+	const pageSize = 8;
+	const category = (voice: Voice) =>
+		voice.kind === 'clone' ? 'clone' : voice.engine === 'voicevox' ? 'voicevox' : 'preset';
+	$: filtered = voices.filter(
+		(voice) =>
+			category(voice) === activeTab &&
+			voice.name.toLowerCase().includes(search.trim().toLowerCase())
+	);
+	$: pages = Math.max(1, Math.ceil(filtered.length / pageSize));
+	$: if (page > pages) page = pages;
+	$: displayed = filtered.slice((page - 1) * pageSize, page * pageSize);
+	function switchTab(id: string) {
+		activeTab = id;
+		page = 1;
+		deleting = '';
+		previewId = '';
+		if (referencePreview) URL.revokeObjectURL(referencePreview);
+		referencePreview = '';
+	}
+	function tabKey(event: KeyboardEvent, index: number) {
+		const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+		const next =
+			event.key === 'Home'
+				? 0
+				: event.key === 'End'
+					? tabs.length - 1
+					: (index + offset + tabs.length) % tabs.length;
+		if (!offset && !['Home', 'End'].includes(event.key)) return;
+		event.preventDefault();
+		switchTab(tabs[next].id);
+		document.getElementById(`voice-tab-${tabs[next].id}`)?.focus();
+	}
+
 	function selectFile(next: File, transcript = '') {
 		generation += 1;
 		file = next;
@@ -55,6 +96,8 @@
 				body: form
 			});
 			reset();
+			switchTab('clone');
+			search = '';
 			await refresh();
 			toast.success('音色已保存，可以用于生成播报');
 		} catch (e) {
@@ -175,9 +218,49 @@
 		</div>
 	</section>
 	<section class="min-w-0">
-		<h2 class="mb-4 font-semibold">全部音色 · 可逐一试听</h2>
-		<div class="divide-y divide-gray-100 dark:divide-gray-800">
-			{#each voices as voice (voice.id)}
+		<h2 class="mb-4 font-semibold">音色库 · 可逐一试听</h2>
+		<div
+			role="tablist"
+			aria-label="音色分类"
+			class="flex flex-wrap gap-2 border-b border-gray-200 pb-3 dark:border-gray-700"
+		>
+			{#each tabs as tab, index}
+				<button
+					role="tab"
+					id={`voice-tab-${tab.id}`}
+					aria-controls="voice-list-panel"
+					aria-selected={activeTab === tab.id}
+					tabindex={activeTab === tab.id ? 0 : -1}
+					on:click={() => switchTab(tab.id)}
+					on:keydown={(event) => tabKey(event, index)}
+					class="rounded-lg px-3 py-2 text-sm transition-colors hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 dark:hover:bg-gray-800 {activeTab ===
+					tab.id
+						? 'bg-gray-900 text-white hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200'
+						: 'text-gray-600 dark:text-gray-300'}"
+				>
+					{tab.label}
+					<span class="text-xs">{voices.filter((voice) => category(voice) === tab.id).length}</span>
+				</button>
+			{/each}
+		</div>
+		<label class="mt-4 block text-sm"
+			>搜索音色
+			<input
+				type="search"
+				bind:value={search}
+				on:input={() => (page = 1)}
+				placeholder="输入角色或音色名称"
+				class="mt-2 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 dark:border-gray-700"
+			/>
+		</label>
+		<div
+			id="voice-list-panel"
+			role="tabpanel"
+			tabindex="0"
+			aria-labelledby={`voice-tab-${activeTab}`}
+			class="mt-3 max-h-[65vh] overflow-y-auto overscroll-contain divide-y divide-gray-100 pr-2 dark:divide-gray-800"
+		>
+			{#each displayed as voice (voice.id)}
 				<div class="space-y-3 py-4">
 					<div class="flex items-start justify-between gap-3">
 						<div>
@@ -220,8 +303,29 @@
 						</div>{/if}
 				</div>
 			{:else}<p class="py-6 text-sm text-gray-500">
-					还没有保存的音色，上传或录制一段声音开始。
+					{search.trim()
+						? '没有匹配的音色，请尝试其他名称。'
+						: activeTab === 'clone'
+							? '还没有保存的音色，上传或录制一段声音开始。'
+							: '此分类暂无可用音色。'}
 				</p>{/each}
+		</div>
+		<div class="mt-4 flex items-center justify-between gap-3 text-sm">
+			<button
+				disabled={page <= 1}
+				on:click={() => (page -= 1)}
+				class="rounded-lg border border-gray-200 px-3 py-2 hover:bg-gray-100 disabled:opacity-40 dark:border-gray-700 dark:hover:bg-gray-800"
+				>上一页</button
+			>
+			<span role="status" class="text-xs text-gray-500"
+				>{page} / {pages} 页 · {filtered.length} 个音色</span
+			>
+			<button
+				disabled={page >= pages}
+				on:click={() => (page += 1)}
+				class="rounded-lg border border-gray-200 px-3 py-2 hover:bg-gray-100 disabled:opacity-40 dark:border-gray-700 dark:hover:bg-gray-800"
+				>下一页</button
+			>
 		</div>
 	</section>
 </div>

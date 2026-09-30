@@ -43,14 +43,16 @@
 	async function remove() {
 		if (
 			!confirm(
-				`删除「${job.title}」这条视频记录？\n记录将从列表移除，后台保留素材和任务信息。再次提交相同素材会恢复原记录。`
+				`删除「${job.title}」这条视频记录？\n将清理本地视频、预览音频及无引用的素材，无法恢复。再次生成需要重新提交，云端引擎可能再次计费。`
 			)
 		)
 			return;
 		busy = true;
 		try {
-			await videoStudio(`/jobs/${job.id}`, { method: 'DELETE' });
-			toast.success('视频记录已删除');
+			const result = await videoStudio(`/jobs/${job.id}`, { method: 'DELETE' });
+			if (result.cleanup_pending) toast.info('记录已删除，文件清理将在后台重试');
+			else
+				toast.success(`视频记录已删除，已释放 ${(result.freed_bytes / 1024 / 1024).toFixed(1)} MB`);
 			await refresh();
 		} catch (e) {
 			toast.error(`${e}`);

@@ -1,7 +1,6 @@
 """Authenticated portrait library and explicit, paid video workflow actions."""
 
 import asyncio
-import time
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -129,15 +128,7 @@ async def jobs(user=Depends(get_verified_user)):
 
 @router.delete('/jobs/{id}')
 async def delete_job(id: str, user=Depends(get_verified_user)):
-    item = await service.owned(id, user)
-    if item['status'] not in ('completed', 'failed'):
-        raise HTTPException(409, '请等待生成结束，或先核实提交结果，再删除记录')
-    deliveries = await records.listing(user.id, kind='delivery', statuses=['sending', 'unknown'], limit=10000)
-    if any(receipt.get('job_id') == id for receipt in deliveries):
-        raise HTTPException(409, '请等待 TG 发送完成，或先核实发送结果，再删除记录')
-    if not await records.change(item, deleted_at=int(time.time())):
-        raise HTTPException(409, '任务状态已变化，请刷新后重试')
-    return {'ok': True}
+    return await service.delete_record(id, user)
 
 
 class Approval(BaseModel):
@@ -215,7 +206,13 @@ async def telegram(id: str, user=Depends(get_admin_user)):
     item = await service.owned(id, user)
     if item['status'] != 'completed':
         raise HTTPException(409, '视频尚未生成完成')
-    task = asyncio.create_task(video_delivery.send(item, user))
+
+    async def deliver():
+        async with service.asset_lock():
+            current = await service.owned(id, user)
+            return await video_delivery.send(current, user)
+
+    task = asyncio.create_task(deliver())
     send_tasks.add(task)
 
     def done(result):
