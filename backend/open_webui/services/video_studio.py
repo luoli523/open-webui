@@ -59,8 +59,17 @@ def public(item):
 
 async def owned(id, user, kind='job'):
     item = await records.get(id, user.id)
-    if not item or item['kind'] != kind:
+    if not item or item['kind'] != kind or item.get('deleted_at'):
         raise HTTPException(404, '记录不存在')
+    return item
+
+
+async def restore_record(item):
+    # Reusing identical inputs restores the original task, never creates a paid duplicate.
+    if item.get('deleted_at'):
+        item = await records.change(item, deleted_at=None)
+        if not item:
+            raise HTTPException(409, '记录已变化，请刷新重试')
     return item
 
 
@@ -136,7 +145,7 @@ async def create_preview(user, form):
     id = fingerprint({'user': user.id, 'preview': stamp})
     existing = await records.get(id, user.id)
     if existing:
-        return existing
+        return await restore_record(existing)
     waiting = await records.listing(user.id, statuses=ACTIVE, limit=8)
     if len(waiting) >= 8:
         raise HTTPException(429, '视频任务过多，请稍后再试')
@@ -177,7 +186,7 @@ async def create_final(user, preview, expected_fingerprint):
     id = fingerprint({'preview': preview['id'], 'attempt': preview['attempt'], 'stage': 'final'})
     existing = await records.get(id, user.id)
     if existing:
-        return existing
+        return await restore_record(existing)
     fields = (
         'portrait_asset',
         'portrait_hash',

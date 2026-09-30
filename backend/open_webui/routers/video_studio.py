@@ -1,6 +1,7 @@
 """Authenticated portrait library and explicit, paid video workflow actions."""
 
 import asyncio
+import time
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -123,7 +124,20 @@ async def preview(form: Preview, user=Depends(get_verified_user)):
 
 @router.get('/jobs')
 async def jobs(user=Depends(get_verified_user)):
-    return [service.public(item) for item in await records.listing(user.id)]
+    return [service.public(item) for item in await records.listing(user.id, visible_only=True)]
+
+
+@router.delete('/jobs/{id}')
+async def delete_job(id: str, user=Depends(get_verified_user)):
+    item = await service.owned(id, user)
+    if item['status'] not in ('completed', 'failed'):
+        raise HTTPException(409, '请等待生成结束，或先核实提交结果，再删除记录')
+    deliveries = await records.listing(user.id, kind='delivery', statuses=['sending', 'unknown'], limit=10000)
+    if any(receipt.get('job_id') == id for receipt in deliveries):
+        raise HTTPException(409, '请等待 TG 发送完成，或先核实发送结果，再删除记录')
+    if not await records.change(item, deleted_at=int(time.time())):
+        raise HTTPException(409, '任务状态已变化，请刷新后重试')
+    return {'ok': True}
 
 
 class Approval(BaseModel):

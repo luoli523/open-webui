@@ -53,11 +53,13 @@ async def get(id, user_id=None):
             return serialize(row)
 
 
-async def listing(user_id=None, kind='job', statuses=None, limit=100, oldest=False):
+async def listing(user_id=None, kind='job', statuses=None, limit=100, oldest=False, visible_only=False):
     async with get_async_db_context() as db:
         query = select(VideoRecord).where(VideoRecord.kind == kind)
         if user_id is not None:
             query = query.where(VideoRecord.user_id == user_id)
+        if visible_only:
+            query = query.where(VideoRecord.data['deleted_at'].as_integer().is_(None))
         if statuses:
             query = query.where(VideoRecord.status.in_(statuses))
         query = query.order_by(VideoRecord.created_at.asc() if oldest else VideoRecord.created_at.desc())

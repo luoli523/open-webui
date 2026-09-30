@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { downloadVideo, videoPost, type VideoJob, type Receipt } from '$lib/apis/video-studio';
+	import {
+		downloadVideo,
+		videoStudio,
+		videoPost,
+		type VideoJob,
+		type Receipt
+	} from '$lib/apis/video-studio';
 	import StudioMedia from './StudioMedia.svelte';
 	import WorkingIndicator from './WorkingIndicator.svelte';
 	export let job: VideoJob;
@@ -34,6 +40,25 @@
 			busy = false;
 		}
 	}
+	async function remove() {
+		if (
+			!confirm(
+				`删除「${job.title}」这条视频记录？\n记录将从列表移除，后台保留素材和任务信息。再次提交相同素材会恢复原记录。`
+			)
+		)
+			return;
+		busy = true;
+		try {
+			await videoStudio(`/jobs/${job.id}`, { method: 'DELETE' });
+			toast.success('视频记录已删除');
+			await refresh();
+		} catch (e) {
+			toast.error(`${e}`);
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function final() {
 		if (
 			!confirm(
@@ -174,4 +199,18 @@
 			>
 		</div>
 	{/if}
+	<div class="border-t border-gray-100 pt-3 dark:border-gray-800">
+		<button
+			type="button"
+			on:click={remove}
+			disabled={busy ||
+				!['completed', 'failed'].includes(job.status) ||
+				['sending', 'unknown'].includes(delivery?.status ?? '')}
+			class="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 transition-colors hover:bg-red-50 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
+			>删除记录</button
+		>
+		{#if !['completed', 'failed'].includes(job.status)}<p class="mt-2 text-xs text-gray-500">
+				生成结束或核实提交结果后可删除。
+			</p>{/if}
+	</div>
 </article>
