@@ -18,6 +18,7 @@ from open_webui.services import video_media as media, video_studio as studio
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[3]
 ACTIVE = ('queued', 'running')
+RENDER_REVISION = 2
 LANGUAGES = Literal['', 'zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it']
 
 
@@ -66,24 +67,89 @@ def ffmpeg_path():
     )
 
 
+def font_settings():
+    # Explicitly load the font files: browser fonts and libass discovery differ.
+    directory = os.environ.get('STUDIO_SUBTITLE_FONTS_DIR')
+    family = os.environ.get('STUDIO_SUBTITLE_FONT')
+    if not directory and Path('/System/Library/Fonts/STHeiti Medium.ttc').is_file():
+        directory, family = '/System/Library/Fonts', family or 'Heiti SC'
+    family = family or 'Noto Sans CJK SC'
+    if any(c in family for c in ',\r\n'):
+        raise ValueError('字幕字体名称无效')
+    return directory, family
+
+
+def ready(item):
+    return bool(
+        item
+        and item.get('cues')
+        and item['status'] == 'completed'
+        and item.get('rendered_version') == item['version']
+        and item.get('render_revision') == RENDER_REVISION
+        and item.get('render_asset')
+    )
+
+
+async def ensure_automatic(job, retry=False):
+    async with studio.asset_lock():
+        job = await records.get(job['id'], job['user_id'])
+        if not job or job.get('deleted_at') or job['status'] != 'completed':
+            return
+        item = await records.get(identifier(job['id']), job['user_id'])
+        if item:
+            if job.get('auto_captions') and item['status'] == 'completed' and item.get('cues') and not ready(item):
+                return await records.change(item, 'queued', operation='render', auto_render=True, error=None)
+            if retry and item['status'] == 'failed':
+                return await records.change(
+                    item, 'queued', operation=item.get('operation', 'generate'), auto_render=True, error=None
+                )
+            return item
+        source = job.get('source_text', '')
+        if not source:
+            audio = await audio_records.get(job.get('audio_job_id'), job['user_id'])
+            source = (audio or {}).get('text', '')
+        return await records.create(
+            job['user_id'],
+            'caption',
+            dict(
+                job_id=job['id'],
+                operation='generate',
+                language='',
+                source_text=source,
+                align=bool(source) and (job['stage'] == 'final' or job['full_duration'] <= 15),
+                auto_render=True,
+                error=None,
+                cues=[],
+                style=Style().model_dump(),
+                version=0,
+                rendered_version=None,
+            ),
+            'queued',
+            identifier(job['id']),
+        )
+
+
 def public(item):
     if not item:
         return None
     return {
-        k: item.get(k)
-        for k in (
-            'revision',
-            'status',
-            'operation',
-            'error',
-            'cues',
-            'style',
-            'version',
-            'rendered_version',
-            'mode',
-            'duration',
-            'language',
-        )
+        'render_ready': ready(item),
+        **{
+            k: item.get(k)
+            for k in (
+                'revision',
+                'status',
+                'operation',
+                'error',
+                'cues',
+                'style',
+                'version',
+                'rendered_version',
+                'mode',
+                'duration',
+                'language',
+            )
+        },
     }
 
 
@@ -148,6 +214,7 @@ async def generate(id, user, form):
         data = dict(
             job_id=id,
             operation='generate',
+            auto_render=bool(job.get('auto_captions')),
             language=form.language,
             source_text=source,
             align=bool(source) and (job['stage'] == 'final' or job['full_duration'] <= 15),
@@ -189,7 +256,7 @@ async def render(id, user, form):
         check_edit(item, form.revision)
         if not item.get('cues'):
             raise HTTPException(409, '请先生成并保存字幕')
-        if item.get('rendered_version') == item['version'] and media.path(item['render_asset']).is_file():
+        if ready(item) and media.path(item['render_asset']).is_file():
             return public(item)
         return public(await records.change(item, 'queued', operation='render', error=None))
 
@@ -228,6 +295,7 @@ def export(item, format):
     color = '&H00' + color[4:6] + color[2:4] + color[0:2]
     # Font size/margins are expressed against a constant 720 px canvas height.
     width = max(200, round(720 * item.get('width', 16) / item.get('height', 9)))
+    _, family = font_settings()
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {width}
@@ -236,7 +304,7 @@ WrapStyle: 0
 ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,PingFang SC,{style.size},{color},&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,{3 if style.background else 1},2,0,{8 if style.position == 'top' else 2},24,24,{style.margin},1
+Style: Default,{family},{style.size},{color},&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,{3 if style.background else 1},2,0,{8 if style.position == 'top' else 2},24,24,{style.margin},1
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
@@ -263,7 +331,7 @@ async def artifact(id, user, format):
     if format == 'mp4':
         if item['status'] in ACTIVE:
             raise HTTPException(409, '字幕正在处理，请等待完成后下载或发送')
-        if item.get('rendered_version') != item['version'] or not item.get('render_asset'):
+        if not ready(item):
             raise HTTPException(409, '字幕已修改或尚未烧录，请生成当前字幕版视频')
         source = media.path(item['render_asset'])
         if not source.is_file():
@@ -332,7 +400,8 @@ async def execute(item):
             async with studio.asset_lock():
                 await records.change(
                     item,
-                    'completed',
+                    'queued' if item.get('auto_render') else 'completed',
+                    operation='render' if item.get('auto_render') else 'generate',
                     cues=cues,
                     duration=duration,
                     width=video['width'],
@@ -345,12 +414,17 @@ async def execute(item):
             if b' ass ' not in filters:
                 raise ValueError('FFmpeg 缺少 libass，请安装 ffmpeg-full')
             ass = media.path(prefix + '.ass')
-            target = media.path(f'{prefix}-v{item["version"]}.mp4')
+            target = media.path(f'{prefix}-v{item["version"]}-r{RENDER_REVISION}.mp4')
             temp = media.path(prefix + '-render.tmp.mp4')
             temporary.extend([ass, temp])
             media.atomic_bytes(ass, export(item, 'ass').encode())
             # Escaped local server path, never an arbitrary client filter expression.
             escaped = str(ass).replace('\\', '\\\\').replace(':', '\\:').replace("'", "'\\''")
+            fonts_dir, _ = font_settings()
+            filter_value = f"ass=filename='{escaped}'"
+            if fonts_dir:
+                escaped_dir = fonts_dir.replace('\\', '\\\\').replace(':', '\\:').replace("'", "'\\''")
+                filter_value += f":fontsdir='{escaped_dir}'"
             await media.command(
                 ffmpeg_path(),
                 '-nostdin',
@@ -362,7 +436,7 @@ async def execute(item):
                 '-i',
                 source,
                 '-vf',
-                f"ass=filename='{escaped}'",
+                filter_value,
                 '-map',
                 '0:v:0',
                 '-map',
@@ -388,7 +462,12 @@ async def execute(item):
                 os.chmod(temp, 0o600)
                 os.replace(temp, target)
                 updated = await records.change(
-                    item, 'completed', rendered_version=item['version'], render_asset=target.name, render_hash=digest
+                    item,
+                    'completed',
+                    rendered_version=item['version'],
+                    render_revision=RENDER_REVISION,
+                    render_asset=target.name,
+                    render_hash=digest,
                 )
                 if updated:
                     for old in media.directory().glob(prefix + '-v*.mp4'):
@@ -427,8 +506,21 @@ async def worker():
                     media.path(item['job_id'] + '-caption' + suffix).unlink(missing_ok=True)
                 except OSError:
                     log.warning('Interrupted caption temporary file cleanup deferred')
+        next_scan = 0
         while True:
             try:
+                if asyncio.get_running_loop().time() >= next_scan:
+                    for job in await records.listing(statuses=['completed'], visible_only=True, limit=10000):
+                        if job.get('auto_captions'):
+                            await ensure_automatic(job)
+                    # Repair legacy renders that used a font unavailable to libass.
+                    for old in await records.listing(kind='caption', statuses=['completed'], limit=10000):
+                        if old.get('rendered_version') == old.get('version') and not ready(old):
+                            async with studio.asset_lock():
+                                parent = await records.get(old['job_id'])
+                                if parent and not parent.get('deleted_at'):
+                                    await records.change(old, 'queued', operation='render', error=None)
+                    next_scan = asyncio.get_running_loop().time() + 10
                 for item in await records.listing(kind='caption', statuses=['queued'], oldest=True, limit=100):
                     await execute(item)
                 await asyncio.sleep(2)

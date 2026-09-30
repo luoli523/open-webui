@@ -45,7 +45,7 @@
 	let timer: ReturnType<typeof setInterval>;
 	$: active = !!caption && ['queued', 'running'].includes(caption.status);
 	$: locked = busy || loading || active;
-	$: rendered = !!caption && caption.version === caption.rendered_version && !dirty;
+	$: rendered = !!caption && caption.render_ready && !dirty;
 	$: currentCue = cues.find((c) => c.start <= currentTime && currentTime < c.end);
 	$: if (cues) updateTrack(cues);
 	function updateTrack(items: CaptionCue[]) {
@@ -107,7 +107,7 @@
 			try {
 				await load();
 				const blob = await videoStudio(
-					`/jobs/${job.id}/video`,
+					`/jobs/${job.id}/video?variant=original`,
 					{ signal: controller.signal },
 					true
 				);
@@ -346,6 +346,7 @@
 						bind:clientHeight={playerHeight}
 						src={movieUrl}
 						controls
+						controlslist="nodownload"
 						playsinline
 						preload="metadata"
 						class="w-full"

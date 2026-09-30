@@ -26,6 +26,13 @@ export type Provider = {
 	duration_note: string;
 };
 export type VideoJob = {
+	auto_captions?: boolean;
+	caption_ready?: boolean;
+	caption_hash?: string;
+	caption_status?: string;
+	caption_operation?: string;
+	caption_version?: number;
+	caption_error?: string;
 	id: string;
 	revision: number;
 	title: string;
@@ -52,6 +59,7 @@ export type Receipt = {
 	status: string;
 	error?: string;
 	variant?: 'original' | 'captioned';
+	artifact_hash?: string;
 };
 
 export async function videoStudio(path: string, options: RequestInit = {}, binary = false) {
@@ -71,8 +79,12 @@ export async function videoStudio(path: string, options: RequestInit = {}, binar
 export const videoPost = (path: string, data: unknown = {}) =>
 	videoStudio(path, { method: 'POST', body: JSON.stringify(data) });
 
-export async function downloadVideo(job: VideoJob) {
-	const blob = await videoStudio(`/jobs/${job.id}/video`, {}, true);
+export async function downloadVideo(job: VideoJob, original = false) {
+	const blob = await videoStudio(
+		`/jobs/${job.id}/video${original ? '?variant=original' : ''}`,
+		{},
+		true
+	);
 	const url = URL.createObjectURL(blob);
 	const link = document.createElement('a');
 	link.href = url;
@@ -90,6 +102,7 @@ export type CaptionStyle = {
 	background: boolean;
 };
 export type VideoCaption = {
+	render_ready: boolean;
 	revision: number;
 	status: string;
 	operation: string;

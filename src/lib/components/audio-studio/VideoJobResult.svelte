@@ -56,6 +56,10 @@
 	$: working = ['queued', 'preparing', 'submitting', 'processing', 'downloading'].includes(
 		job.status
 	);
+	$: captionWorking =
+		job.status === 'completed' && ['queued', 'running'].includes(job.caption_status ?? '');
+	$: captionPending = job.auto_captions && !job.caption_ready;
+	$: chosenDelivery = job.caption_ready || job.auto_captions ? captionDelivery : delivery;
 	const labels: Record<string, string> = {
 		queued: '等待生成',
 		preparing: '准备素材',
@@ -115,10 +119,10 @@
 			return;
 		await action(`/jobs/${job.id}/retry`, { consent: job.retry_requires_payment });
 	}
-	async function download() {
+	async function download(original = false) {
 		busy = true;
 		try {
-			await downloadVideo(job);
+			await downloadVideo(job, original);
 		} catch (e) {
 			toast.error(`${e}`);
 		} finally {
@@ -229,30 +233,54 @@
 			</p>
 		</div>
 		<span class="inline-flex items-center gap-2 text-xs text-gray-500" role="status"
-			>{#if working || busy}<WorkingIndicator />{/if}{busy
+			>{#if working || busy || captionWorking}<WorkingIndicator />{/if}{busy
 				? '正在处理…'
-				: (labels[job.status] ?? job.status)}</span
+				: captionWorking
+					? job.caption_operation === 'render'
+						? '正在烧录字幕…'
+						: '正在生成字幕…'
+					: captionPending
+						? '字幕处理失败'
+						: (labels[job.status] ?? job.status)}</span
 		>
 	</div>
 	{#if job.error}<p role="alert" class="break-words text-sm text-red-600 dark:text-red-400">
 			{job.error}
 		</p>{/if}
+	{#if job.caption_error}<p role="alert" class="text-xs text-red-600">
+			字幕：{job.caption_error}
+		</p>{/if}
+	{#if job.status === 'completed' && job.caption_status === 'failed'}<button
+			disabled={busy}
+			class="text-xs underline"
+			on:click={() => action(`/jobs/${job.id}/captions/automatic`)}>重试字幕（本地免费）</button
+		>{/if}
 	{#if job.status === 'completed'}
-		{#if expanded}<StudioMedia
+		{#if expanded && !captionPending}<StudioMedia
 				path={`/jobs/${job.id}/video`}
 				kind="video"
-				version={String(job.attempt)}
+				version={`${job.attempt}:${job.caption_ready}:${job.caption_version}`}
 				autoplay
 				compact
 			/>{/if}
 		<div class="flex flex-wrap gap-x-3 gap-y-1 text-xs">
 			{#if job.stage === 'preview'}<button
-					disabled={busy || hasFinal}
+					disabled={busy || hasFinal || captionPending}
 					on:click={final}
 					class="font-medium underline disabled:opacity-40"
 					>{hasFinal ? '已创建完整版' : '确认预览，付费生成完整版'}</button
 				>{/if}
-			<button disabled={busy} on:click={download} class="underline">下载原片 MP4</button>
+			<button
+				disabled={busy || captionPending}
+				on:click={() => download()}
+				class="underline disabled:opacity-40"
+				>{job.caption_ready ? '下载带字幕 MP4' : '下载 MP4'}</button
+			>
+			{#if job.auto_captions || job.caption_ready}<button
+					disabled={busy}
+					on:click={() => download(true)}
+					class="text-gray-500 underline">下载原片</button
+				>{/if}
 			<button
 				class="underline"
 				on:click={() => {
@@ -261,14 +289,18 @@
 				}}>字幕</button
 			>
 			{#if isAdmin}<button
-					disabled={busy || ['sending', 'sent', 'unknown'].includes(delivery?.status ?? '')}
+					disabled={busy ||
+						captionPending ||
+						['sending', 'sent', 'unknown'].includes(chosenDelivery?.status ?? '')}
 					on:click={() => action(`/jobs/${job.id}/telegram`)}
 					class="underline disabled:opacity-40"
-					>{delivery?.status === 'sent'
+					>{chosenDelivery?.status === 'sent'
 						? '已发送 TG'
-						: delivery?.status === 'sending'
+						: chosenDelivery?.status === 'sending'
 							? '正在发送…'
-							: '发送原片 TG'}</button
+							: job.caption_ready
+								? '发送字幕版 TG'
+								: '发送 TG'}</button
 				>{/if}
 		</div>
 		{#if captionsOpen}<CaptionEditor

@@ -47,6 +47,8 @@ PUBLIC_FIELDS = (
     'job_id',
     'message_id',
     'variant',
+    'artifact_hash',
+    'auto_captions',
     'approved_at',
     'attempt',
 )
@@ -232,6 +234,8 @@ async def _create_preview(user, form):
     id = fingerprint({'user': user.id, 'preview': stamp})
     id, existing = await available_id(id, user.id)
     if existing:
+        if not existing.get('auto_captions'):
+            return await records.change(existing, auto_captions=True) or existing
         return existing
     waiting = await records.listing(user.id, statuses=ACTIVE, limit=8)
     if len(waiting) >= 8:
@@ -244,6 +248,7 @@ async def _create_preview(user, form):
         **inputs,
         title=source_job['title'],
         source_text=source_job.get('text', ''),
+        auto_captions=True,
         credit=source_job.get('credit'),
         portrait_name=portrait['name'],
         audio_asset=snapshot.name,
@@ -280,6 +285,8 @@ async def _create_final(user, preview, expected_fingerprint):
     id = fingerprint({'preview': preview['id'], 'attempt': preview['attempt'], 'stage': 'final'})
     id, existing = await available_id(id, user.id)
     if existing:
+        if not existing.get('auto_captions'):
+            return await records.change(existing, auto_captions=True) or existing
         return existing
     fields = (
         'portrait_asset',
@@ -302,6 +309,7 @@ async def _create_final(user, preview, expected_fingerprint):
     data.update(
         credit=preview.get('credit'),
         source_text=preview.get('source_text', ''),
+        auto_captions=True,
         stage='final',
         preview_id=preview['id'],
         resolution=preview['final_resolution'],

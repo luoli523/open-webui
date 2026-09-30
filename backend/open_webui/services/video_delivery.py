@@ -34,7 +34,11 @@ async def send(job, user, *, source=None, video_hash=None, variant='original'):
     else:
         try:
             receipt = await records.create(
-                user.id, 'delivery', dict(job_id=job['id'], chat_id=config['chat_id'], variant=variant), 'sending', id
+                user.id,
+                'delivery',
+                dict(job_id=job['id'], chat_id=config['chat_id'], variant=variant, artifact_hash=video_hash),
+                'sending',
+                id,
             )
         except IntegrityError:
             raise HTTPException(409, '该视频已在发送，请刷新') from None

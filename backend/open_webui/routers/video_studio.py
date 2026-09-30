@@ -124,7 +124,22 @@ async def preview(form: Preview, user=Depends(get_verified_user)):
 
 @router.get('/jobs')
 async def jobs(user=Depends(get_verified_user)):
-    return [service.public(item) for item in await records.listing(user.id, visible_only=True)]
+    caption_items = {c['job_id']: c for c in await records.listing(user.id, kind='caption', limit=10000)}
+    result = []
+    for item in await records.listing(user.id, visible_only=True):
+        caption = caption_items.get(item['id'])
+        result.append(
+            dict(
+                service.public(item),
+                caption_ready=captions.ready(caption),
+                caption_hash=caption.get('render_hash') if caption else None,
+                caption_status=caption['status'] if caption else 'queued' if item.get('auto_captions') else None,
+                caption_operation=caption.get('operation') if caption else 'generate',
+                caption_version=caption.get('rendered_version') if caption else None,
+                caption_error=caption.get('error') if caption else None,
+            )
+        )
+    return result
 
 
 @router.delete('/jobs/{id}')
@@ -221,11 +236,15 @@ async def thumbnail(id: str, user=Depends(get_verified_user)):
 
 
 @router.get('/jobs/{id}/video')
-async def video(id: str, user=Depends(get_verified_user)):
+async def video(id: str, variant: Literal['auto', 'original'] = 'auto', user=Depends(get_verified_user)):
     item = await service.owned(id, user)
     source = media.path(item['id'] + '.mp4')
     if item['status'] != 'completed' or not source.is_file():
         raise HTTPException(409, '视频尚未准备好')
+    if variant == 'auto':
+        caption = await records.get(captions.identifier(id), user.id)
+        if item.get('auto_captions') or captions.ready(caption):
+            source, _ = await captions.artifact(id, user, 'mp4')
     return FileResponse(
         source,
         media_type='video/mp4',
@@ -240,7 +259,7 @@ async def deliveries(user=Depends(get_admin_user)):
 
 
 @router.post('/jobs/{id}/telegram')
-async def telegram(id: str, variant: Literal['original', 'captioned'] = 'original', user=Depends(get_admin_user)):
+async def telegram(id: str, variant: Literal['auto', 'original', 'captioned'] = 'auto', user=Depends(get_admin_user)):
     item = await service.owned(id, user)
     if item['status'] != 'completed':
         raise HTTPException(409, '视频尚未生成完成')
@@ -248,10 +267,14 @@ async def telegram(id: str, variant: Literal['original', 'captioned'] = 'origina
     async def deliver():
         async with service.asset_lock():
             current = await service.owned(id, user)
-            if variant == 'captioned':
+            caption = await records.get(captions.identifier(id), user.id)
+            use_captions = variant == 'captioned' or (
+                variant == 'auto' and (current.get('auto_captions') or captions.ready(caption))
+            )
+            if use_captions:
                 source, caption = await captions.artifact(id, user, 'mp4')
                 return await video_delivery.send(
-                    current, user, source=source, video_hash=caption['render_hash'], variant=variant
+                    current, user, source=source, video_hash=caption['render_hash'], variant='captioned'
                 )
             return await video_delivery.send(current, user)
 
@@ -315,3 +338,9 @@ async def caption_file(id: str, format: Literal['srt', 'vtt', 'ass', 'mp4'] = 's
         media_type='text/vtt' if format == 'vtt' else 'text/plain',
         headers={'Cache-Control': 'private, no-store', 'Content-Disposition': f'attachment; filename="{filename}"'},
     )
+
+
+@router.post('/jobs/{id}/captions/automatic')
+async def retry_automatic_captions(id: str, user=Depends(get_verified_user)):
+    job = await captions.completed_job(id, user)
+    return captions.public(await captions.ensure_automatic(job, retry=True))
