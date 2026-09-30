@@ -221,3 +221,99 @@
 - [ ] 用户点击发送后确认 Telegram 实际收件。未自动发送验收消息。
 
 浏览器控制不可用（无浏览器连接，原生 Chrome 返回 cgWindowNotFound）。API、构建与自动测试已完成，不将其等同于上述 UI 验收。
+
+## 数字人视频扩展（待实施）
+
+以下是现有工作台的后续开发。检查项是计划中的验收标准，尚未执行；自动化测试、付费生成和真实 TG 发送遵循 plan.md 中的实施条件。文件为建议拆分位置，可按实际结构微调。
+
+### V1：统一引擎契约与任务结构
+
+- [ ] 实现完成
+
+**内容：** 定义 VideoProvider、能力描述、输入快照及视频任务数据模型。
+**依赖：** 已有音频任务。**范围：** M。
+**预计文件：** services/video_providers/base.py；models/video_studio.py；数据库迁移；docs/VIDEO_STUDIO.md。
+**验收：** image/video 能力可区分；任务固定引擎/配置版本；外部 ID 和未知提交状态可持久保存。
+**验证：** 审查 HeyGen 与假设本地 HTTP 引擎的字段映射及迁移兼容性，不安装本地模型。
+
+### V2：人物照片库闭环
+
+- [ ] 实现完成
+
+**内容：** 上传照片、命名、默认音色、预览、替换和隐藏删除；引用不可变素材版本。
+**依赖：** V1。**范围：** M。
+**预计文件：** services/portrait_assets.py；routers/video_studio.py；apis/video-studio/index.ts；PortraitLibrary.svelte；audio-studio/+page.svelte。
+**验收：** 刷新保留人物；有效图像校验与权限隔离；更新不破坏旧快照。
+**验证：** 审查上传/下载鉴权和版本引用；可用浏览器中核对人物管理交互。
+
+### 检查点 V2 后
+
+- [ ] 人物管理可独立使用，引擎接口不依赖 HeyGen 专用字段。
+
+### V3：HeyGen 配置与适配器
+
+- [ ] 实现完成
+
+**内容：** 管理员密钥设置、能力接口、素材上传、提交、查询和结果下载适配。
+**依赖：** V1。**范围：** M。
+**预计文件：** services/video_providers/heygen.py；video_providers/registry.py；routers/video_studio.py；VideoProviderSettings.svelte；前端 API。
+**验收：** 密钥不泄露；请求使用已有音频；每次外部操作结果可以立即持久化。
+**验证：** 对照官方接口审查参数、错误处理、下载来源限制和凭证传递；付费调用另行授权。
+
+### V4：可恢复的视频任务执行器
+
+- [ ] 实现完成
+
+**内容：** 原子领取、去重、阶段持久化、后台查询、下载、重启恢复及退避。
+**依赖：** V1、V3。**范围：** M。
+**预计文件：** services/video_studio.py；models/video_studio.py；main.py；models/audio_studio.py（按需隔离恢复）；routers/video_studio.py。
+**验收：** 已知 ID 继续查询；未知提交不重发；视频状态不被音频恢复逻辑误改。
+**验证：** 审查崩溃窗口、并发和各状态恢复路径；记录需后续定向测试的场景。
+
+### V5：从播报生成短预览
+
+- [ ] 实现完成
+
+**内容：** 播报卡片入口、选人物/比例、短音频截取、提交提示、状态和预览播放器。
+**依赖：** V2、V4。**范围：** M。
+**预计文件：** DigitalHumanStudio.svelte；JobResult.svelte；audio-studio/+page.svelte；前端 API；services/video_studio.py。
+**验收：** 固定现有音频结果；离开返回保留任务；云端上传和付费提交清楚可见。
+**验证：** 页面交互/构建检查；获得授权后用短中文音频核对真实预览。
+
+### 检查点 V5 后
+
+- [ ] 预览闭环完成；未知提交不会自动重复计费；实际样片与未验项有记录。
+
+### V6：确认预览并生成完整视频
+
+- [ ] 实现完成
+
+**内容：** 保存与输入摘要绑定的批准，创建完整子任务，下载和播放本地 MP4。
+**依赖：** V5。**范围：** M。
+**预计文件：** models/video_studio.py；routers/video_studio.py；services/video_studio.py；DigitalHumanStudio.svelte；VideoJobResult.svelte。
+**验收：** 改素材或引擎后批准失效；正式版复用完整原配音；文件损坏只重下载已有结果。
+**验证：** 审查批准匹配、播放鉴权和音视频时长检查；实际完整版由预览确认后触发。
+
+### V7：视频发送到 Telegram
+
+- [ ] 实现完成
+
+**内容：** 复用现有配置及权限规则，增加视频发送、大小限制处理和去重回执。
+**依赖：** V6。**范围：** M。
+**预计文件：** services/video_delivery.py；routers/video_studio.py；VideoJobResult.svelte；前端 API。
+**验收：** 成功记录回执；未知结果不自动重发；超限文件提供可操作提示。
+**验证：** 对照当前 Telegram 接口核对限制并审查发送状态；真实发送需明确授权。
+
+### 检查点 V7 后
+
+- [ ] 预览→确认→完整视频→下载闭环完成；发送状态及未实发事项有记录。
+
+### V8：响应式交付与更换引擎说明
+
+- [ ] 实现完成
+
+**内容：** 适配侧栏/窄屏，补充配置、备份、回滚和本地 HTTP 引擎接入文档。
+**依赖：** V7。**范围：** M。
+**预计文件：** DigitalHumanStudio.svelte；PortraitLibrary.svelte；docs/VIDEO_STUDIO.md；tasks/plan.md；tasks/todo.md。
+**验收：** 侧栏不遮挡内容；能力变化可在页面体现；历史任务继续使用原引擎。
+**验证：** 构建和可用浏览器检查；审查替换引擎时的缓存、批准、下载兼容性，未实际部署的本地引擎明确标注。
