@@ -64,3 +64,7 @@ PYTHONPATH=backend python -m unittest discover -s backend/tests -p test_audio_st
 新增迁移 `a71d90ce2401` 只创建 `audio_studio` 表，不改变原有业务表。
 
 回滚时先停源码实例；旧版 Alembic 不认识新 revision，不能直接切回旧包后启动。保留数据库副本后，用本源码环境 downgrade 到 `d4c1a8e37b62`（会删除工作台任务/回执），或恢复升级前备份（会丢失升级后的数据库变更），再运行 `owui.sh release`。音频和音色素材保持备份，不随回滚删除。
+
+## 布局修正
+
+工作台遵循主应用的侧栏宽度变量，展开、收起和拖动侧栏时更新可用宽度。生成和音色管理双栏依据工作台容器宽度切换（56rem），较窄空间使用单栏；内容区独立滚动。

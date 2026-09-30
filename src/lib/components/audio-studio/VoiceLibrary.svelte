@@ -107,8 +107,8 @@
 	});
 </script>
 
-<div class="grid gap-6 lg:grid-cols-2">
-	<section class="space-y-4">
+<div class="voice-columns grid min-w-0 grid-cols-1 gap-6">
+	<section class="min-w-0 space-y-4">
 		<h2 class="font-semibold">{editing ? `编辑音色 · ${editing.name}` : '创建新音色'}</h2>
 		<div class="flex gap-2">
 			<button
@@ -179,7 +179,7 @@
 			>{#if editing}<button class="text-sm" on:click={reset}>取消编辑</button>{/if}
 		</div>
 	</section>
-	<section>
+	<section class="min-w-0">
 		<h2 class="mb-4 font-semibold">已保存的声音</h2>
 		<div class="divide-y divide-gray-100 dark:divide-gray-800">
 			{#each voices.filter((v) => v.kind === 'clone') as voice (voice.id)}
@@ -224,3 +224,11 @@
 		</div>
 	</section>
 </div>
+
+<style>
+	@container audio-studio (min-width: 56rem) {
+		.voice-columns {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+</style>

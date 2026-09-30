@@ -66,8 +66,14 @@
 </script>
 
 <svelte:head><title>语音工作台 · {$WEBUI_NAME}</title></svelte:head>
-<div class="flex h-full w-full flex-col overflow-hidden">
-	<header class="flex items-center gap-3 border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+<div
+	class="flex h-screen max-h-[100dvh] w-full min-w-0 flex-col overflow-hidden transition-width duration-200 ease-in-out {$showSidebar
+		? 'md:max-w-[calc(100%-var(--sidebar-width))]'
+		: 'max-w-full'}"
+>
+	<header
+		class="flex shrink-0 items-center gap-3 border-b border-gray-100 px-4 py-3 dark:border-gray-800"
+	>
 		<button
 			aria-label="切换侧栏"
 			class="rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -75,7 +81,7 @@
 		>
 		<h1 class="text-lg font-semibold">语音工作台</h1>
 	</header>
-	<main class="flex-1 overflow-y-auto">
+	<main class="studio-content min-h-0 min-w-0 flex-1 overflow-y-auto">
 		<div class="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
 			<div>
 				<p class="text-sm text-gray-500">选择一个声音，让文字变成播报。</p>
@@ -98,8 +104,8 @@
 				</div>{/if}
 			{#if loading}<p role="status" class="py-8 text-sm text-gray-500">正在加载工作台…</p>
 			{:else if tab === 'voices'}<VoiceLibrary {voices} refresh={loadVoices} />
-			{:else}<div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-					<section class="space-y-5">
+			{:else}<div class="studio-columns grid min-w-0 grid-cols-1 items-start gap-8">
+					<section class="min-w-0 space-y-5">
 						<h2 class="font-semibold">创建播报</h2>
 						<label class="block text-sm"
 							>选择声音<select
@@ -150,7 +156,7 @@
 								onchange={(value) => (telegram = value)}
 							/>{/if}
 					</section>
-					<section>
+					<section class="min-w-0">
 						<div class="flex items-center justify-between">
 							<h2 class="font-semibold">最近生成</h2>
 							<button
@@ -171,3 +177,15 @@
 		</div>
 	</main>
 </div>
+
+<style>
+	.studio-content {
+		container: audio-studio / inline-size;
+	}
+
+	@container audio-studio (min-width: 56rem) {
+		.studio-columns {
+			grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+		}
+	}
+</style>
