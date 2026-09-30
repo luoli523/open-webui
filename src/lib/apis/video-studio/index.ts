@@ -46,7 +46,13 @@ export type VideoJob = {
 	attempt: number;
 	retry_requires_payment: boolean;
 };
-export type Receipt = { id: string; job_id: string; status: string; error?: string };
+export type Receipt = {
+	id: string;
+	job_id: string;
+	status: string;
+	error?: string;
+	variant?: 'original' | 'captioned';
+};
 
 export async function videoStudio(path: string, options: RequestInit = {}, binary = false) {
 	const headers = new Headers(options.headers);
@@ -71,6 +77,37 @@ export async function downloadVideo(job: VideoJob) {
 	const link = document.createElement('a');
 	link.href = url;
 	link.download = `${job.title.replace(/[\\/:*?"<>|]/g, '_')}-${job.stage}.mp4`;
+	link.click();
+	setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+export type CaptionCue = { start: number; end: number; text: string };
+export type CaptionStyle = {
+	size: number;
+	color: string;
+	position: 'bottom' | 'top';
+	margin: number;
+	background: boolean;
+};
+export type VideoCaption = {
+	revision: number;
+	status: string;
+	operation: string;
+	error?: string;
+	cues: CaptionCue[];
+	style: CaptionStyle;
+	version: number;
+	rendered_version: number | null;
+	mode?: string;
+	duration?: number;
+	language: string;
+};
+export async function downloadCaption(job: VideoJob, format: 'srt' | 'vtt' | 'ass' | 'mp4') {
+	const blob = await videoStudio(`/jobs/${job.id}/captions/file?format=${format}`, {}, true);
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement('a');
+	link.href = url;
+	link.download = `${job.title.replace(/[\\/:*?"<>|]/g, '_')}-字幕.${format}`;
 	link.click();
 	setTimeout(() => URL.revokeObjectURL(url), 60000);
 }

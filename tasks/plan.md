@@ -120,3 +120,15 @@
 ### 数字人执行记录
 
 代码已实现并在本机部署；具体文件和使用步骤见 `docs/VIDEO_STUDIO.md`。当前没有配置 HeyGen，也没有生成付费任务。生产构建、Python静态检查通过；新增前端文件无 Svelte 诊断。未添加或运行自动化测试，真实外部生成和 UI 交互仍待验收。
+
+## 视频字幕扩展（2026-09-30）
+
+用户已授权按字幕方案实施。沿用现有计划并保留历史待验项。
+- 独立本地 stable-ts 适配器，复用 Whisper small 缓存：有完整原文则对齐成片音轨；短预览不强塞完整原文，转写其实际音轨。无原文走 ASR。字幕可人工修正。
+- video_studio 表新增 caption kind，持久化 queued/running/completed/failed，独立 worker 锁；字幕任务不会调用视频生成引擎。保存使用 revision CAS，渲染固定字幕快照。
+- GET/POST /jobs/{id}/captions，PUT /jobs/{id}/captions（revision、cues、style），POST /jobs/{id}/captions/render，GET /jobs/{id}/captions/file?format=srt|vtt|ass|mp4。
+- 保留原始 MP4，带字幕成片按字幕版本保存；修改后旧成片标为过期。下载与 TG 明确选择原片或当前字幕版。
+- 编辑器：播放、逐句定位、修改时间/文本、拆分/合并、字号/颜色/位置；支持桌面双栏及窄屏堆叠。
+- 删除视频同步清理字幕任务文件；生成中禁止删除以免并发读写；重启中断任务标为失败可重试。
+- 本期交付基础字幕生成、编辑、样式、导出、烧录；双语翻译、逐字高亮及外部字幕导入留到后续。
+- 验证：依赖能力检查、Python 静态检查、Svelte 检查和构建；按当前指令不添加/运行测试，不生成付费视频、不发送 TG。

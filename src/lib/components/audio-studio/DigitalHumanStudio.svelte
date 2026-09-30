@@ -214,7 +214,13 @@
 				{refresh}
 				isAdmin={$user?.role === 'admin'}
 				hasFinal={jobs.some((j) => j.preview_id === job.id)}
-				delivery={receipts.find((r) => r.job_id === job.id)}
+				delivery={receipts.find((r) => r.job_id === job.id && r.variant !== 'captioned')}
+				captionDelivery={receipts.find(
+					(r) =>
+						r.job_id === job.id &&
+						r.variant === 'captioned' &&
+						['unknown', 'sending'].includes(r.status)
+				) ?? receipts.find((r) => r.job_id === job.id && r.variant === 'captioned')}
 			/>{:else}{#if !loading && !error}<p class="py-12 text-center text-sm leading-7 text-gray-500">
 					还没有视频记录。<br />选择人物和播报，生成第一段预览。
 				</p>{/if}{/each}

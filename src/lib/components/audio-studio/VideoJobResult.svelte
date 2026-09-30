@@ -9,11 +9,15 @@
 		type Receipt
 	} from '$lib/apis/video-studio';
 	import StudioMedia from './StudioMedia.svelte';
+	import CaptionEditor from './CaptionEditor.svelte';
+	let captionsOpen = false;
+	let captionEditor: CaptionEditor;
 	import VideoThumbnail from './VideoThumbnail.svelte';
 	let expanded = false;
 	import WorkingIndicator from './WorkingIndicator.svelte';
 	export let job: VideoJob;
 	export let delivery: Receipt | undefined = undefined;
+	export let captionDelivery: Receipt | undefined = undefined;
 	export let isAdmin = false;
 	export let hasFinal = false;
 	export let refresh: () => Promise<void>;
@@ -143,7 +147,8 @@
 		title="删除"
 		disabled={busy ||
 			!['completed', 'failed'].includes(job.status) ||
-			['sending', 'unknown'].includes(delivery?.status ?? '')}
+			['sending', 'unknown'].includes(delivery?.status ?? '') ||
+			['sending', 'unknown'].includes(captionDelivery?.status ?? '')}
 		class="absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-red-950/30 dark:hover:text-red-400"
 	>
 		<svg
@@ -247,7 +252,14 @@
 					class="font-medium underline disabled:opacity-40"
 					>{hasFinal ? '已创建完整版' : '确认预览，付费生成完整版'}</button
 				>{/if}
-			<button disabled={busy} on:click={download} class="underline">下载 MP4</button>
+			<button disabled={busy} on:click={download} class="underline">下载原片 MP4</button>
+			<button
+				class="underline"
+				on:click={() => {
+					if (captionsOpen) captionEditor?.close();
+					else captionsOpen = true;
+				}}>字幕</button
+			>
 			{#if isAdmin}<button
 					disabled={busy || ['sending', 'sent', 'unknown'].includes(delivery?.status ?? '')}
 					on:click={() => action(`/jobs/${job.id}/telegram`)}
@@ -256,9 +268,17 @@
 						? '已发送 TG'
 						: delivery?.status === 'sending'
 							? '正在发送…'
-							: '发送 TG'}</button
+							: '发送原片 TG'}</button
 				>{/if}
 		</div>
+		{#if captionsOpen}<CaptionEditor
+				bind:this={captionEditor}
+				receipt={captionDelivery}
+				{job}
+				{isAdmin}
+				{refresh}
+				onclose={() => (captionsOpen = false)}
+			/>{/if}
 	{:else if job.status === 'failed'}
 		<button disabled={busy} class="text-sm underline" on:click={retry}
 			>{job.retry_requires_payment
