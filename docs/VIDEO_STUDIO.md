@@ -1,0 +1,83 @@
+# 数字人视频工作台
+
+入口：`/audio-studio` → **我的人物 / 数字人视频**。
+
+## 使用流程
+
+1. 在「我的人物」上传 JPG/PNG，保存名称和可选的默认音色。短边至少256像素，最多2400万像素、20 MB；存储时去除元数据并等比缩小到最长边2048像素。
+2. 使用现有「生成播报」创建配音，试听确认。成品 MP3 会直接用于视频，不需要 MiniMax 或 HeyGen TTS。
+3. 管理员在「数字人视频 → HeyGen 设置」保存 API Key 并启用。密钥留空表示保留；更换密钥产生新配置版本，既有任务仍使用原版本。
+4. 从播报卡片点击「生成数字人视频」，或在数字人页面选择人物和历史播报。
+5. 勾选素材使用及云端付费确认，再生成短预览。预览最长15秒，长音频尽量在12–15秒间的停顿结束；不足15秒使用全长。
+6. 播放预览，检查声音、嘴形、面部和构图。点击「确认预览，付费生成完整版」后才创建正式任务。
+7. 下载 MP4；管理员可点击「发送 TG」，沿用生成播报页的 Telegram 配置。
+
+预览默认720p、正式版1080p，提供16:9、9:16、1:1。两次生成分别消耗 HeyGen 额度，未硬编码费用估计。首版应用限制为5分钟播报、32 MB上传素材、512 MB下载视频；Telegram发送使用49 MB保守阈值，超出时提供下载。页面显示最近100个视频任务。
+
+照片与配音在本机保存。只有用户提交生成后才发送给引擎；原始音色参考录音不上传。暂停新任务不会取消已经提交的云端任务。
+
+## 实现位置
+
+- `models/video_studio.py` / migration `c312e09b4a71`：人物、视频任务、视频发送回执，独立于音频恢复流程。
+- `services/video_media.py`：私有图片和配音快照、FFmpeg预览截取、视频解码及轨道/时长检查。
+- `services/video_studio.py`：持久化编排、输入绑定、批准、重启恢复、轮询退避。
+- `services/video_providers/base.py` / `heygen.py`：可替换的视频引擎接口及 HeyGen v3 实现。
+- `routers/video_studio.py`：登录鉴权和管理员设置，前缀 `/api/v1/video-studio`。
+- `src/lib/components/audio-studio/`：人物库、生成表单、结果、设置和鉴权媒体播放。
+
+## 引擎接口与本地模型接入
+
+`VideoProvider` 的职责：
+
+| 方法/属性 | 契约 |
+|---|---|
+| `capabilities` | 引擎ID、名称、云端/付费标志、image/video输入能力、比例/分辨率、应用限制、预览/正式分辨率、取消能力 |
+| `prepare_asset(path, media_type)` | 一次准备一个素材，返回该引擎的素材引用；编排层立即保存 |
+| `submit(request, assets)` | 返回外部任务ID；无法确定是否接受请求时抛出 `SubmissionUnknown` |
+| `poll(external_id)` | 返回 `state` 为 pending/processing/completed/failed；临时结果定位信息仅在内存中传递 |
+| `fetch_result(result, destination)` | 下载/复制成品到指定临时文件，不自行提交新的生成任务 |
+
+接本地模型时：
+
+1. 单独部署本地推理 HTTP 服务，隔离 Python/GPU 依赖；WebUI 不导入模型运行时。
+2. 实现 `LocalAvatarProvider` 并在 `video_providers/__init__.py` 注册，`cloud=false`、`paid=false`。服务需提供持久化任务ID和幂等提交，不把断线当作任务失败。
+3. 为该引擎添加管理员配置和配置版本选择；本地地址使用服务端受控配置，不能由普通用户传入任意 URL。现有配置页面仅实现 HeyGen，没有可工作的本地引擎占位选项。
+4. `prepare_asset` 可以上传到本地服务或使用受控素材引用；WebUI 输入始终是授权素材，不能接受客户端任意服务器路径。
+5. 若模型需要人物视频，扩展人物素材上传/校验和展示，沿用 `input_type=video` 与能力筛选。首版人物UI只接收照片，不能假装所有引擎都接受同样素材。
+6. 添加默认引擎设置；新任务固定 provider_id、配置版本、素材摘要和参数。旧任务继续使用原引擎。更换引擎需要新预览；不会自动退回云端。
+
+无需改变现有 TTS 生成接口、配音历史、视频批准逻辑、产物下载或 Telegram 工作流。实际本地引擎、视频素材UI和多引擎配置页面尚未实现。
+
+## 状态和恢复
+
+`queued → preparing → submitting → processing → downloading → completed`
+
+- 素材上传后立即保存素材ID；提交前保存意图，创建响应后立即保存视频ID。
+- `preparing` 遇到重启：复用已保存的素材ID，从准备阶段继续。
+- `submitting` 遇到重启、超时或含糊响应：进入 `submission_unknown`，不会自动重提。
+- 已有视频ID：重启继续查询。下载失败或链接过期：重新查询并下载已有结果，不重新生成。
+- 查询/下载连续失败5次后显示失败，可点击“继续查询 / 重试下载”。生成被明确拒绝或引擎报告失败时，重新生成需要再次确认费用。
+- 相同用户与不可变输入对应同一个预览任务，重复点击返回已有任务；完整任务同样去重。
+- 预览和完整任务是独立记录。批准固定预览的素材和参数快照；修改人物产生新版本。历史预览仍代表原素材，可明确确认其原素材生成完整版，不会混入新照片。
+- `submission_unknown`：管理员到 HeyGen 查找页面显示的任务标题，填视频ID关联（服务端核对标题/callback），或确认未创建后允许重新生成。
+- 发送中断：回执变成 `unknown`，先核对 TG，选择已收到或确实未收到后才允许重发。
+
+后台使用本机文件锁保证一个视频执行器；适用于目前的单机部署，多主机部署需要数据库/分布式任务租约。引擎任务ID和素材缓存按具体任务隔离。
+
+## 存储、上线与回滚
+
+- 数据库：现有 `DATA_DIR/webui.db` 新增 `video_studio` 表。密钥按配置版本保存在服务端 Config 表，普通用户接口不返回密钥。
+- 文件：`DATA_DIR/video-studio`，目录700、素材及结果600。原音频仍由 `DATA_DIR/audio-studio` 管理。
+- 隐藏删除人物不会删除历史素材。首版不自动清理文件或旧密钥版本；备份和容量管理需包含此目录及数据库。
+- 本次上线前数据库备份：`~/.open-webui/backups/digital-human-20260930-142717/`。
+- 上一版前端临时备份：`/tmp/open-webui-before-digital-human-build`。长期留存应另行归档，系统可能清理 `/tmp`。
+- 回滚时先暂停新的视频任务并记下正在生成/结果不明的任务ID。回退代码与匹配前端即可；新增表可保留，不必破坏性降级或恢复整个数据库。重启旧版本后云端任务仍可能完成，需要在 HeyGen 查询。
+
+## 检查记录
+
+- Python AST解析和 Ruff F 类静态检查通过；Vite生产构建通过，源码服务已重启，新增表迁移已应用。
+- Svelte 检查：7001错误、198警告、344文件，与已有基线相同；新增工作台文件没有诊断。
+- 未新增或运行自动化测试；未提交真实付费 HeyGen 任务，未发送 TG。
+- 真实口型效果、账号额度、完整外部生成、浏览器交互和实际 TG 收件仍需验收；静态检查不能代替这些结果。
+
+接口参考：[HeyGen Image to Video](https://developers.heygen.com/image-to-video)、[HeyGen Assets](https://developers.heygen.com/assets)、[Telegram sendVideo](https://core.telegram.org/bots/api#sendvideo)。
