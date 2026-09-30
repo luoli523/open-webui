@@ -150,6 +150,7 @@ from open_webui.routers import (
     analytics,
     audio,
     audio_studio,
+    video_studio,
     auths,
     automations,
     calendar,
@@ -474,10 +475,13 @@ async def lifespan(app: FastAPI):
 
     from open_webui.services.audio_studio import worker, shutdown
     studio_worker = asyncio.create_task(worker())
+    from open_webui.services.video_studio import worker as video_worker
+    video_studio_worker = asyncio.create_task(video_worker())
 
     yield
 
     await shutdown(studio_worker)
+    await shutdown(video_studio_worker)
     await publish_event(app, EVENTS.SYSTEM_SHUTDOWN_STARTED, source='system')
 
     # Shutdown: clean up shared resources
@@ -855,6 +859,7 @@ app.include_router(images.router, prefix='/api/v1/images', tags=['images'])
 
 app.include_router(audio.router, prefix='/api/v1/audio', tags=['audio'])
 app.include_router(audio_studio.router, prefix='/api/v1/audio-studio', tags=['audio-studio'])
+app.include_router(video_studio.router, prefix='/api/v1/video-studio', tags=['video-studio'])
 app.include_router(retrieval.router, prefix='/api/v1/retrieval', tags=['retrieval'])
 
 app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
