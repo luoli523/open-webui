@@ -23,15 +23,20 @@
 	let deleting = '';
 	const tabs = [
 		{ id: 'clone', label: '我的音色' },
-		{ id: 'preset', label: '内置音色' },
-		{ id: 'voicevox', label: '日语动漫' }
+		{ id: 'zh', label: '中文音色' },
+		{ id: 'en', label: '英文音色' },
+		{ id: 'other', label: '其他内置' }
 	];
 	let activeTab = 'clone';
 	let search = '';
 	let page = 1;
 	const pageSize = 8;
 	const category = (voice: Voice) =>
-		voice.kind === 'clone' ? 'clone' : voice.engine === 'voicevox' ? 'voicevox' : 'preset';
+		voice.kind === 'clone'
+			? 'clone'
+			: ['zh', 'en'].includes(voice.language ?? '')
+				? voice.language
+				: 'other';
 	$: filtered = voices.filter(
 		(voice) =>
 			category(voice) === activeTab &&

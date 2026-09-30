@@ -79,6 +79,26 @@
 			busy = false;
 		}
 	}
+	async function remove() {
+		if (
+			!confirm(
+				`删除播报「${job.title}」及本地 WAV、MP3 文件？此操作无法恢复。已创建的视频使用独立素材副本，不受影响。`
+			)
+		)
+			return;
+		busy = true;
+		try {
+			const result = await studio(`/jobs/${job.id}`, { method: 'DELETE' });
+			if (result.cleanup_pending) toast.info('播报已删除，磁盘清理将在后台重试');
+			else toast.success(`播报已删除，释放 ${(result.freed_bytes / 1024 / 1024).toFixed(1)} MB`);
+			await refresh();
+		} catch (e) {
+			toast.error(`${e}`);
+		} finally {
+			busy = false;
+		}
+	}
+
 	onDestroy(() => {
 		disposed = true;
 		if (url) URL.revokeObjectURL(url);
@@ -143,4 +163,20 @@
 				>
 			</div>
 		</div>{/if}
+	<div class="pt-2">
+		<button
+			type="button"
+			on:click={remove}
+			disabled={busy ||
+				sending ||
+				!['completed', 'failed', 'interrupted'].includes(job.status) ||
+				['sending', 'unknown'].includes(delivery?.status ?? '')}
+			class="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/30"
+		>
+			{busy ? '处理中…' : '删除播报'}
+		</button>
+		{#if ['queued', 'running'].includes(job.status)}<p class="mt-2 text-xs text-gray-500">
+				生成结束后可删除。
+			</p>{/if}
+	</div>
 </article>

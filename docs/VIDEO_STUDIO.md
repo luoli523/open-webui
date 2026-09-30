@@ -98,23 +98,17 @@
 
 接口参考：[HeyGen Image to Video](https://developers.heygen.com/image-to-video)、[HeyGen Assets](https://developers.heygen.com/assets)、[Telegram sendVideo](https://core.telegram.org/bots/api#sendvideo)。
 
-## VOICEVOX 日语动漫音色
+## 中英文语音与 VOICEVOX 移除
 
-安装 VOICEVOX ENGINE 后，工作台自动合并 `/speakers` 中的所有 talk 音色；唱歌模型不列入播报菜单。音色名称标注「日语」，试听使用日语示例。现有中文 Qwen 和克隆音色保持原流程。VOICEVOX 不可用时仍能使用已有本地音色。
+VOICEVOX 日语引擎及其工作台接入已卸载（2026-09-30），清理引擎、安装包与 18 个试听缓存，约释放 3.94 GB。正式播报、视频及原有 Qwen 模型保留。
 
-- 官方包：VOICEVOX ENGINE 0.25.2，macOS arm64。
-- 安装目录：`~/.open-webui/voicevox/0.25.2/macos-arm64`。
-- 服务：`~/Library/LaunchAgents/com.luoli.voicevox.plist`，登录自动运行，仅监听 `127.0.0.1:50021`，4 CPU threads，禁用可变配置 API。
-- 日志：`~/.open-webui/voicevox/engine.log`。
-- 后端地址：`VOICEVOX_BASE_URL`（默认上述地址，只允许 loopback）。
-- 音色 ID：`voicevox_<style-id>`，音频仍通过原有持久队列产生 WAV/MP3，供下载或数字人配音。
-- 工作台显示 `VOICEVOX:角色名` 署名，音频和视频 TG caption 自动附带；下载后发布请保留署名，并遵守 [各角色条款](https://voicevox.hiroshiba.jp/)。
-- 重启：`launchctl kickstart -k gui/$(id -u)/com.luoli.voicevox`。
-- 停用：`launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.luoli.voicevox.plist`。
-- 重新启用：`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.luoli.voicevox.plist`。
+播报根据文案选择语言：含汉字用 Chinese，其余用 English；修复此前固定 Chinese 的参数。英文原生预设试听使用英语。当前启用已有 Qwen 中英文音色，候选扩展见 [中英文音色建议](VOICE_OPTIONS_ZH_EN.md)。
 
-官方安装包 SHA-256：`6bd492249ac83c119f6fe38f2e44804e83ebc2c7f75295b21715080beb673a28`。
-模型和安装包不提交 Git。此安装未修改 `local-tts` 项目。
+## 删除播报记录
+
+生成播报页的「删除播报」会在确认后移除记录并清理 WAV、MP3 及转换临时文件，显示释放大小。仅完成、失败、中断任务可删；TG 正在发送或待核实则先处理发送状态。文件清理失败由后台每分钟重试。
+
+删除与视频创建、TG 发送共享进程间锁，已创建的视频使用独立素材快照，删除源播报不影响它们。保留小型已删除元数据用于回执关联，不再返回列表或下载接口。
 
 ## 删除生成记录
 
@@ -126,4 +120,4 @@
 
 ## 音色库分类
 
-右侧音色列表使用「我的音色 / 内置音色 / 日语动漫」标签；支持方向键及 Home/End 切换。每类可按名称搜索，每页最多 8 个音色，列表高度限制为视口的 65%，窄屏时放在创建表单下方。保存新音色后切回「我的音色」。
+右侧音色列表使用「我的音色 / 中文音色 / 英文音色 / 其他内置」标签；支持方向键及 Home/End 切换。每类可按名称搜索，每页最多 8 个音色，列表高度限制为视口的 65%，窄屏时放在创建表单下方。保存新音色后切回「我的音色」。

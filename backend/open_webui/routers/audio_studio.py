@@ -10,7 +10,6 @@ from fastapi.responses import FileResponse, Response
 from open_webui.models import audio_studio as records
 from open_webui.models.config import Config
 from open_webui.services import audio_studio as service
-from open_webui.services import voicevox_studio
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from pydantic import BaseModel, Field
 
@@ -32,7 +31,11 @@ async def create_sample(id: str, user=Depends(get_verified_user)):
 
     voice = await service.voice_for(user, id)
     version = voice.get('version')
-    text = voicevox_studio.SAMPLE_TEXT if voice.get('engine') == 'voicevox' else SAMPLE_TEXT
+    text = (
+        'Hello! Welcome to the voice studio. Let us make something wonderful together.'
+        if voice.get('language') == 'en'
+        else SAMPLE_TEXT
+    )
     key = hashlib.sha256(f'{user.id}:{voice["id"]}:{version}:{text}:1'.encode()).hexdigest()
     sample = await records.get(key, user.id)
     if sample:
@@ -53,6 +56,7 @@ async def create_sample(id: str, user=Depends(get_verified_user)):
             'sample',
             dict(
                 text=text,
+                language=service.language_for(text),
                 title=f'{voice["name"]} · 音色试听',
                 voice_id=voice['id'],
                 voice_name=voice['name'],
@@ -160,6 +164,7 @@ async def generate(form: Generate, user=Depends(get_verified_user)):
         'job',
         dict(
             text=form.text.strip(),
+            language=service.language_for(form.text),
             voice_id=voice['id'],
             voice_name=voice['name'],
             voice_version=voice.get('version') if voice['kind'] == 'clone' else None,
@@ -177,9 +182,14 @@ async def jobs(user=Depends(get_verified_user)):
 
 async def owned_job(id, user):
     job = await records.get(id, user.id)
-    if not job or job['kind'] != 'job':
+    if not job or job['kind'] != 'job' or job['status'] == 'deleted':
         raise HTTPException(404, '任务不存在')
     return job
+
+
+@router.delete('/jobs/{id}')
+async def delete_job(id: str, user=Depends(get_verified_user)):
+    return await service.delete_job(id, user)
 
 
 @router.get('/jobs/{id}')
@@ -236,7 +246,17 @@ async def send(id: str, user=Depends(get_admin_user)):
     job = await owned_job(id, user)
     if job['status'] != 'completed':
         raise HTTPException(409, '音频尚未生成完成')
-    task = asyncio.create_task(service.send_telegram(job, user))
+
+    async def deliver():
+        from open_webui.services import video_studio
+
+        async with video_studio.asset_lock():
+            current = await owned_job(id, user)
+            if current['status'] != 'completed':
+                raise HTTPException(409, '音频尚未生成完成')
+            return await service.send_telegram(current, user)
+
+    task = asyncio.create_task(deliver())
     send_tasks.add(task)
 
     def done(t):

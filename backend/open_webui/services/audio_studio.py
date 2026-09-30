@@ -5,6 +5,8 @@ import contextlib
 import hashlib
 import logging
 import os
+import re
+import time
 import shutil
 from pathlib import Path
 from urllib.parse import urlparse
@@ -14,7 +16,6 @@ from fastapi import HTTPException
 from open_webui.env import DATA_DIR
 from open_webui.models import audio_studio as records
 from open_webui.models.config import Config
-from open_webui.services import voicevox_studio
 
 log = logging.getLogger(__name__)
 DIRECTORY = Path(DATA_DIR) / 'audio-studio'
@@ -40,16 +41,31 @@ async def local(method, path, *, json=None, data=None, binary=False):
         raise HTTPException(503, '本地语音服务未连接或请求超时，请检查 local-tts') from None
 
 
+PRESET_LANGUAGES = {
+    'Serena': 'zh',
+    'Vivian': 'zh',
+    'Uncle_Fu': 'zh',
+    'Dylan': 'zh',
+    'Eric': 'zh',
+    'Ryan': 'en',
+    'Aiden': 'en',
+    'Ono_Anna': 'ja',
+    'Sohee': 'ko',
+}
+
+
+def language_for(text):
+    # The studio targets Chinese/English; mixed Chinese text keeps Chinese pronunciation.
+    return 'chinese' if re.search(r'[\u3400-\u9fff]', text) else 'english'
+
+
 async def voices(user):
-    results = await asyncio.gather(local('GET', '/v1/audio/voices'), voicevox_studio.voices(), return_exceptions=True)
-    available = []
-    if not isinstance(results[0], Exception):
-        available.extend(v for v in results[0]['voices'] if not v.get('owner_id') or v['owner_id'] == user.id)
-    if not isinstance(results[1], Exception):
-        available.extend(results[1])
-    if not available and isinstance(results[0], Exception):
-        raise results[0]
-    return available
+    result = await local('GET', '/v1/audio/voices')
+    return [
+        dict(v, language=PRESET_LANGUAGES.get(v['id'], 'auto'))
+        for v in result['voices']
+        if not v.get('owner_id') or v['owner_id'] == user.id
+    ]
 
 
 async def voice_for(user, id, edit=False):
@@ -102,22 +118,21 @@ async def execute(job):
         return
     try:
         if job['voice_id'].startswith('voicevox_'):
-            data = await voicevox_studio.synthesize(job)
-        else:
-            data = await local(
-                'POST',
-                '/v1/audio/speech',
-                json=dict(
-                    model='qwen3-tts',
-                    voice=job['voice_id'],
-                    voice_version=job['voice_version'],
-                    input=job['text'],
-                    speed=job['speed'],
-                    response_format='wav',
-                    lang_code='chinese',
-                ),
-                binary=True,
-            )
+            raise HTTPException(410, 'VOICEVOX 日语音色已卸载，请选择中文或英文音色')
+        data = await local(
+            'POST',
+            '/v1/audio/speech',
+            json=dict(
+                model='qwen3-tts',
+                voice=job['voice_id'],
+                voice_version=job['voice_version'],
+                input=job['text'],
+                speed=job['speed'],
+                response_format='wav',
+                lang_code=job.get('language') or language_for(job['text']),
+            ),
+            binary=True,
+        )
         path = audio_path(job['id'], 'wav')
         await asyncio.to_thread(path.write_bytes, data)
         os.chmod(path, 0o600)
@@ -133,6 +148,46 @@ async def execute(job):
         await records.transition(job['id'], ['running'], 'failed', error=error)
 
 
+async def cleanup_deleted():
+    # Video creation and Telegram delivery hold this same cross-process lock.
+    from open_webui.services import video_studio
+
+    async with video_studio.asset_lock():
+        freed = 0
+        for job in await records.listing(status='deleted', limit=None):
+            for suffix in ('wav', 'mp3', 'wav.tmp', 'mp3.tmp'):
+                target = audio_path(job['id'], suffix)
+                try:
+                    size = target.stat().st_size
+                    target.unlink()
+                    freed += size
+                except FileNotFoundError:
+                    pass
+        return freed
+
+
+async def delete_job(id, user):
+    from open_webui.services import video_studio
+
+    async with video_studio.asset_lock():
+        job = await records.get(id, user.id)
+        if not job or job['kind'] != 'job' or job['status'] == 'deleted':
+            raise HTTPException(404, '播报不存在')
+        if job['status'] not in ('completed', 'failed', 'interrupted'):
+            raise HTTPException(409, '请等待播报生成结束后再删除')
+        for status in ('sending', 'unknown'):
+            receipts = await records.listing(user.id, kind='delivery', status=status, limit=None)
+            if any(r.get('job_id') == id for r in receipts):
+                raise HTTPException(409, '请等待 TG 发送结束或核实发送结果后再删除')
+        if not await records.transition(id, [job['status']], 'deleted'):
+            raise HTTPException(409, '播报状态已变化，请刷新')
+    try:
+        return {'ok': True, 'freed_bytes': await cleanup_deleted(), 'cleanup_pending': False}
+    except OSError:
+        log.warning('Audio cleanup deferred; worker will retry')
+        return {'ok': True, 'freed_bytes': 0, 'cleanup_pending': True}
+
+
 async def worker():
     # One worker across local uvicorn processes; held until shutdown.
     import fcntl
@@ -145,8 +200,15 @@ async def worker():
         except BlockingIOError:
             return
         await records.recover()
+        next_cleanup = 0
         while True:
             try:
+                if time.time() >= next_cleanup:
+                    try:
+                        await cleanup_deleted()
+                    except OSError:
+                        log.warning('Audio file cleanup failed; retrying later')
+                    next_cleanup = time.time() + 60
                 jobs = await records.listing(status='queued', limit=10000)
                 samples = await records.listing(kind='sample', status='queued', limit=10000)
                 jobs = sorted(jobs + samples, key=lambda job: job['created_at'], reverse=True)

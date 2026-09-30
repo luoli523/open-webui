@@ -44,6 +44,8 @@ async def listing(user_id=None, kind='job', status=None, limit=50):
         query = select(StudioRecord).where(StudioRecord.kind == kind)
         if user_id is not None:
             query = query.where(StudioRecord.user_id == user_id)
+        if kind == 'job' and status is None:
+            query = query.where(StudioRecord.status != 'deleted')
         if status:
             query = query.where(StudioRecord.status == status)
         result = await db.execute(query.order_by(StudioRecord.created_at.desc()).limit(limit))
