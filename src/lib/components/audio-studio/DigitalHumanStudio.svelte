@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { user } from '$lib/stores';
-	import type { Job } from '$lib/apis/audio-studio';
+	import type { Job, Voice } from '$lib/apis/audio-studio';
 	import {
 		videoStudio,
 		videoPost,
@@ -14,17 +14,21 @@
 	import StudioMedia from './StudioMedia.svelte';
 	import VideoJobResult from './VideoJobResult.svelte';
 	import VideoProviderSettings from './VideoProviderSettings.svelte';
+	import TextNarration from './TextNarration.svelte';
+	import WorkingIndicator from './WorkingIndicator.svelte';
 	export let audioJobs: Job[] = [];
+	export let voices: Voice[] = [];
 	export let initialAudio = '';
 	export let initialPortrait = '';
 	export let managePortraits: () => void = () => {};
-	export let createAudio: (portrait?: Portrait) => void = () => {};
 	let portraits: Portrait[] = [];
 	let providers: Provider[] = [];
 	let jobs: VideoJob[] = [];
 	let receipts: Receipt[] = [];
 	let portrait = initialPortrait;
 	let audio = initialAudio;
+	let narrationMode = 'existing';
+	let textAudio = '';
 	let provider = 'heygen';
 	let ratio = '16:9';
 	let consent = false;
@@ -36,7 +40,8 @@
 	$: engine = providers.find((p) => p.id === provider);
 	$: selectedPortrait = portraits.find((p) => p.id === portrait);
 	$: completedAudio = audioJobs.filter((j) => j.status === 'completed');
-	$: selection = `${portrait}:${selectedPortrait?.version}:${audio}:${provider}:${ratio}`;
+	$: selectedAudio = narrationMode === 'text' ? textAudio : audio;
+	$: selection = `${portrait}:${selectedPortrait?.version}:${selectedAudio}:${provider}:${ratio}:${narrationMode}`;
 	$: if (selection !== lastSelection) {
 		consent = false;
 		lastSelection = selection;
@@ -69,7 +74,7 @@
 		try {
 			await videoPost('/jobs', {
 				portrait_id: portrait,
-				audio_job_id: audio,
+				audio_job_id: selectedAudio,
 				provider_id: provider,
 				aspect_ratio: ratio,
 				consent
@@ -94,7 +99,9 @@
 	<section class="min-w-0 space-y-5">
 		<div>
 			<h2 class="font-semibold">创建数字人视频</h2>
-			<p class="mt-2 text-sm leading-6 text-gray-500">选好人物和配音，先看短预览，再生成完整版。</p>
+			<p class="mt-2 text-sm leading-6 text-gray-500">
+				选好人物，输入文案或选择已有播报，先看短预览，再生成完整版。
+			</p>
 		</div>
 		{#if error}<p role="alert" class="text-sm text-red-600">
 				{error} <button class="underline" on:click={refresh}>重新连接</button>
@@ -133,19 +140,33 @@
 				version={selectedPortrait.version}
 				alt={selectedPortrait.name}
 			/>{/if}
-		<label class="block text-sm"
-			>选择已生成的播报<select
-				bind:value={audio}
-				class="mt-2 w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
-				><option value="" disabled>请选择播报</option>{#each completedAudio as item}<option
-						value={item.id}>{item.title} · {item.voice_name}</option
-					>{/each}</select
-			></label
-		>
-		{#if audio}<StudioMedia path={`/jobs/${audio}/audio?format=mp3`} kind="audio" />{/if}
-		<button class="text-sm underline" on:click={() => createAudio(selectedPortrait)}
-			>使用人物默认音色创建新播报</button
-		>
+		<fieldset class="flex flex-wrap gap-4 text-sm">
+			<legend class="mb-2">配音来源</legend>
+			<label class="inline-flex items-center gap-2"
+				><input type="radio" bind:group={narrationMode} value="existing" />已有播报</label
+			>
+			<label class="inline-flex items-center gap-2"
+				><input type="radio" bind:group={narrationMode} value="text" />输入文本</label
+			>
+		</fieldset>
+		{#if narrationMode === 'text'}
+			<TextNarration
+				{voices}
+				defaultVoice={selectedPortrait?.default_voice_id ?? ''}
+				onready={(id) => (textAudio = id)}
+			/>
+		{:else}
+			<label class="block text-sm"
+				>选择已生成的播报<select
+					bind:value={audio}
+					class="mt-2 w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
+					><option value="" disabled>请选择播报</option>{#each completedAudio as item}<option
+							value={item.id}>{item.title} · {item.voice_name}</option
+						>{/each}</select
+				></label
+			>
+			{#if audio}<StudioMedia path={`/jobs/${audio}/audio?format=mp3`} kind="audio" />{/if}
+		{/if}
 		<label class="block text-sm"
 			>画面比例<select
 				bind:value={ratio}
@@ -173,13 +194,13 @@
 		<button
 			disabled={busy ||
 				!consent ||
-				!audio ||
+				!selectedAudio ||
 				!selectedPortrait ||
 				!engine?.enabled ||
 				!engine?.configured}
 			on:click={generate}
-			class="w-full rounded-xl bg-gray-900 p-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-white dark:text-black"
-			>{busy ? '正在提交…' : '生成短预览'}</button
+			class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 p-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-white dark:text-black"
+			>{#if busy}<WorkingIndicator />{/if}{busy ? '正在提交…' : '生成短预览'}</button
 		>
 		{#if $user?.role === 'admin'}<VideoProviderSettings onchange={refresh} />{/if}
 	</section>

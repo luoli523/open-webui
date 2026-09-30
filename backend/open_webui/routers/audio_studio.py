@@ -113,6 +113,11 @@ async def owned_job(id, user):
     return job
 
 
+@router.get('/jobs/{id}')
+async def get_job(id: str, user=Depends(get_verified_user)):
+    return await owned_job(id, user)
+
+
 @router.get('/jobs/{id}/audio')
 async def audio(id: str, format: str = 'mp3', user=Depends(get_verified_user)):
     job = await owned_job(id, user)

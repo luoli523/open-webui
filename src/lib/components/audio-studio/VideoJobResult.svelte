@@ -2,6 +2,7 @@
 	import { toast } from 'svelte-sonner';
 	import { downloadVideo, videoPost, type VideoJob, type Receipt } from '$lib/apis/video-studio';
 	import StudioMedia from './StudioMedia.svelte';
+	import WorkingIndicator from './WorkingIndicator.svelte';
 	export let job: VideoJob;
 	export let delivery: Receipt | undefined = undefined;
 	export let isAdmin = false;
@@ -9,6 +10,9 @@
 	export let refresh: () => Promise<void>;
 	let busy = false;
 	let externalId = '';
+	$: working = ['queued', 'preparing', 'submitting', 'processing', 'downloading'].includes(
+		job.status
+	);
 	const labels: Record<string, string> = {
 		queued: '等待生成',
 		preparing: '准备素材',
@@ -70,7 +74,7 @@
 
 <article
 	class="min-w-0 space-y-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800"
-	aria-busy={busy}
+	aria-busy={busy || working}
 >
 	<div class="flex flex-wrap items-start justify-between gap-2">
 		<div class="min-w-0">
@@ -80,7 +84,11 @@
 				· {Math.ceil(job.duration)} 秒
 			</p>
 		</div>
-		<span class="text-xs text-gray-500" role="status">{labels[job.status] ?? job.status}</span>
+		<span class="inline-flex items-center gap-2 text-xs text-gray-500" role="status"
+			>{#if working || busy}<WorkingIndicator />{/if}{busy
+				? '正在处理…'
+				: (labels[job.status] ?? job.status)}</span
+		>
 	</div>
 	<p class="text-xs text-gray-500">
 		{job.provider_id} · {new Date(job.created_at * 1000).toLocaleString()}

@@ -2,6 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import { videoStudio } from '$lib/apis/video-studio';
 	import { studio } from '$lib/apis/audio-studio';
+	import WorkingIndicator from './WorkingIndicator.svelte';
 	export let path: string;
 	export let kind: 'image' | 'video' | 'audio' = 'image';
 	export let alt = '';
@@ -68,11 +69,11 @@
 	{/if}
 {:else}
 	<button
-		class="w-full rounded-lg border border-gray-200 p-4 text-sm dark:border-gray-700 disabled:opacity-50"
+		class="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 p-4 text-sm dark:border-gray-700 disabled:opacity-50"
 		disabled={loading}
 		on:click={load}
 	>
-		{loading
+		{#if loading}<WorkingIndicator />{/if}{loading
 			? '正在加载…'
 			: kind === 'image'
 				? '加载照片'

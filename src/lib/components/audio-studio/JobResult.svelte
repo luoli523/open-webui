@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import WorkingIndicator from './WorkingIndicator.svelte';
 	import { studio, post, type Job, type Delivery } from '$lib/apis/audio-studio';
 	export let job: Job;
 	export let canSend = false;
@@ -92,8 +93,10 @@
 				{job.voice_name} · {job.speed}× · {new Date(job.created_at * 1000).toLocaleString()}
 			</p>
 		</div>
-		<span class="shrink-0 text-xs text-gray-500" role="status"
-			>{labels[job.status] || job.status}</span
+		<span class="inline-flex shrink-0 items-center gap-2 text-xs text-gray-500" role="status"
+			>{#if ['queued', 'running'].includes(job.status)}<WorkingIndicator />{/if}{labels[
+				job.status
+			] || job.status}</span
 		>
 	</div>
 	{#if job.error}<p class="text-sm text-red-600 dark:text-red-400">{job.error}</p>{/if}

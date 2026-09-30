@@ -8,6 +8,7 @@
 	import TelegramSettings from '$lib/components/audio-studio/TelegramSettings.svelte';
 	import PortraitLibrary from '$lib/components/audio-studio/PortraitLibrary.svelte';
 	import DigitalHumanStudio from '$lib/components/audio-studio/DigitalHumanStudio.svelte';
+	import WorkingIndicator from '$lib/components/audio-studio/WorkingIndicator.svelte';
 	import { studio, post, type Voice, type Job, type Delivery } from '$lib/apis/audio-studio';
 	let tab = 'generate';
 	let videoAudio = '';
@@ -118,16 +119,10 @@
 				/>
 			{:else if tab === 'video'}<DigitalHumanStudio
 					audioJobs={jobs}
+					{voices}
 					initialAudio={videoAudio}
 					initialPortrait={videoPortrait}
 					managePortraits={() => (tab = 'portraits')}
-					createAudio={(p) => {
-						if (p) {
-							videoPortrait = p.id;
-							if (voices.some((v) => v.id === p.default_voice_id)) voice = p.default_voice_id;
-						}
-						tab = 'generate';
-					}}
 				/>
 			{:else}<div class="studio-columns grid min-w-0 grid-cols-1 items-start gap-8">
 					<section class="min-w-0 space-y-5">
@@ -173,9 +168,12 @@
 							><span class="text-xs text-gray-500">{text.length} / 10000</span>
 						</div>
 						<button
-							class="w-full rounded-xl bg-gray-900 p-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-white dark:text-black"
+							class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 p-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-white dark:text-black"
 							disabled={submitting || !text.trim() || !voice}
-							on:click={generate}>{submitting ? '正在提交…' : '生成播报'}</button
+							on:click={generate}
+							>{#if submitting}<WorkingIndicator />{/if}{submitting
+								? '正在提交…'
+								: '生成播报'}</button
 						>
 						{#if $user?.role === 'admin'}<TelegramSettings
 								onchange={(value) => (telegram = value)}
