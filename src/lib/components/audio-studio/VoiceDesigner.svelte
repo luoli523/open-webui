@@ -8,8 +8,70 @@
 	export let onclear: () => void;
 	export let onbusy: (busy: boolean) => void;
 	let instructions = '';
+
+	const languages = [
+		{
+			value: 'chinese',
+			label: '中文',
+			sample: '你好，欢迎来到今天的故事。让我们一起出发，探索这个奇妙的世界吧！'
+		},
+		{
+			value: 'english',
+			label: '英语 · English',
+			sample:
+				'Hello! Welcome to our story. Let us set off together and explore this wonderful world!'
+		},
+		{
+			value: 'japanese',
+			label: '日语 · 日本語',
+			sample:
+				'こんにちは。今日の物語へようこそ。一緒に出発して、この素晴らしい世界を探検しましょう！'
+		},
+		{
+			value: 'korean',
+			label: '韩语 · 한국어',
+			sample:
+				'안녕하세요. 오늘의 이야기에 오신 것을 환영합니다. 함께 출발해서 이 멋진 세상을 탐험해 봐요!'
+		},
+		{
+			value: 'german',
+			label: '德语 · Deutsch',
+			sample:
+				'Hallo! Willkommen zu unserer Geschichte. Lasst uns gemeinsam aufbrechen und diese wunderbare Welt entdecken!'
+		},
+		{
+			value: 'french',
+			label: '法语 · Français',
+			sample:
+				'Bonjour ! Bienvenue dans notre histoire. Partons ensemble explorer ce monde merveilleux !'
+		},
+		{
+			value: 'russian',
+			label: '俄语 · Русский',
+			sample:
+				'Здравствуйте! Добро пожаловать в нашу историю. Давайте вместе отправимся в путь и исследуем этот удивительный мир!'
+		},
+		{
+			value: 'portuguese',
+			label: '葡萄牙语 · Português',
+			sample:
+				'Olá! Bem-vindos à nossa história. Vamos partir juntos e explorar este mundo maravilhoso!'
+		},
+		{
+			value: 'spanish',
+			label: '西班牙语 · Español',
+			sample:
+				'¡Hola! Bienvenidos a nuestra historia. ¡Salgamos juntos a explorar este maravilloso mundo!'
+		},
+		{
+			value: 'italian',
+			label: '意大利语 · Italiano',
+			sample:
+				'Ciao! Benvenuti nella nostra storia. Partiamo insieme alla scoperta di questo meraviglioso mondo!'
+		}
+	];
 	let language = 'chinese';
-	let text = '你好，欢迎来到今天的故事。让我们一起出发，探索这个奇妙的世界吧！';
+	let text = languages[0].sample;
 	let busy = false;
 	let status = '';
 	let error = '';
@@ -122,13 +184,10 @@
 			bind:value={language}
 			disabled={busy || disabled}
 			on:change={() => {
-				text =
-					language === 'english'
-						? 'Hello! Welcome to our story. Let us set off together and explore this wonderful world!'
-						: '你好，欢迎来到今天的故事。让我们一起出发，探索这个奇妙的世界吧！';
+				text = languages.find((item) => item.value === language)?.sample ?? '';
 			}}
 			class="ml-3 rounded-lg bg-gray-100 p-2 dark:bg-gray-800"
-			><option value="chinese">中文</option><option value="english">English</option></select
+			>{#each languages as item}<option value={item.value}>{item.label}</option>{/each}</select
 		></label
 	>
 	<label class="block text-sm"

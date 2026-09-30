@@ -97,7 +97,18 @@ async def sample_audio(id: str, user=Depends(get_verified_user)):
 class Design(BaseModel):
     instructions: str = Field(min_length=1, max_length=2000)
     text: str = Field(min_length=1, max_length=500)
-    language: Literal['chinese', 'english'] = 'chinese'
+    language: Literal[
+        'chinese',
+        'english',
+        'japanese',
+        'korean',
+        'german',
+        'french',
+        'russian',
+        'portuguese',
+        'spanish',
+        'italian',
+    ] = 'chinese'
 
 
 @router.post('/voice-designs')
