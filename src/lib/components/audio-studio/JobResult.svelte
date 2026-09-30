@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import WorkingIndicator from './WorkingIndicator.svelte';
 	import { studio, post, type Job, type Delivery } from '$lib/apis/audio-studio';
@@ -12,6 +12,36 @@
 	let busy = false;
 	let sending = false;
 	let disposed = false;
+	let editingTitle = false;
+	let draftTitle = '';
+	let originalTitle = '';
+	let titleInput: HTMLInputElement;
+	async function editTitle() {
+		draftTitle = job.title;
+		originalTitle = job.title;
+		editingTitle = true;
+		await tick();
+		titleInput?.focus();
+		titleInput?.select();
+	}
+	async function saveTitle() {
+		if (busy || sending || !draftTitle.trim()) return;
+		busy = true;
+		try {
+			job = await studio(`/jobs/${job.id}`, {
+				method: 'PATCH',
+				body: JSON.stringify({ title: draftTitle.trim(), expected_title: originalTitle })
+			});
+			editingTitle = false;
+			toast.success('播报名称已更新');
+			await refresh();
+		} catch (e) {
+			toast.error(`${e}`);
+		} finally {
+			busy = false;
+		}
+	}
+
 	const labels: Record<string, string> = {
 		queued: '等待生成',
 		running: '正在生成',
@@ -129,7 +159,56 @@
 	</button>
 	<div class="!mt-0 flex items-start justify-between gap-3 pr-9">
 		<div class="min-w-0">
-			<h3 class="break-words font-medium">{job.title}</h3>
+			{#if editingTitle}
+				<form class="flex flex-wrap items-center gap-2" on:submit|preventDefault={saveTitle}>
+					<input
+						bind:this={titleInput}
+						bind:value={draftTitle}
+						aria-label="播报名称"
+						maxlength="100"
+						required
+						disabled={busy || sending}
+						on:keydown={(event) => {
+							if (event.key === 'Escape' && !busy) editingTitle = false;
+						}}
+						class="min-w-0 w-full rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-sm dark:border-gray-600"
+					/>
+					<button
+						type="submit"
+						disabled={busy || !draftTitle.trim()}
+						class="text-sm underline disabled:opacity-40">保存</button
+					>
+					<button
+						type="button"
+						disabled={busy || sending}
+						on:click={() => (editingTitle = false)}
+						class="text-sm text-gray-500">取消</button
+					>
+				</form>
+			{:else}
+				<div class="flex items-start gap-2">
+					<h3 class="min-w-0 break-words font-medium">{job.title}</h3>
+					{#if job.status === 'completed'}<button
+							type="button"
+							disabled={busy || sending}
+							on:click={editTitle}
+							title="改名"
+							aria-label="修改播报名称"
+							class="inline-flex size-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 focus-visible:outline focus-visible:outline-2 disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+						>
+							<svg
+								aria-hidden="true"
+								class="size-4"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.8"
+								stroke-linecap="round"
+								stroke-linejoin="round"><path d="m16 3 5 5L8 21H3v-5L16 3Zm-2 2 5 5" /></svg
+							>
+						</button>{/if}
+				</div>
+			{/if}
 			<p class="mt-1 text-xs text-gray-500">
 				{job.voice_name} · {job.speed}× · {new Date(job.created_at * 1000).toLocaleString()}
 			</p>
@@ -153,7 +232,8 @@
 				on:click={() => audio(true)}>下载 MP3</button
 			><button disabled={busy} on:click={() => audio(true, 'wav')}>下载 WAV</button
 			>{#if canSend}<button
-					disabled={sending ||
+					disabled={busy ||
+						sending ||
 						delivery?.status === 'sent' ||
 						delivery?.status === 'sending' ||
 						delivery?.status === 'unknown'}

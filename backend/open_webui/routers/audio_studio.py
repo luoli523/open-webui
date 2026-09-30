@@ -240,6 +240,29 @@ async def delete_job(id: str, user=Depends(get_verified_user)):
     return await service.delete_job(id, user)
 
 
+class RenameJob(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+    expected_title: str = Field(max_length=100)
+
+
+@router.patch('/jobs/{id}')
+async def rename_job(id: str, form: RenameJob, user=Depends(get_verified_user)):
+    from open_webui.services import video_studio
+
+    title = ' '.join(form.title.split())
+    if not title:
+        raise HTTPException(400, '请输入播报名称')
+    async with video_studio.asset_lock():
+        job = await owned_job(id, user)
+        if job['status'] != 'completed':
+            raise HTTPException(409, '播报生成完成后可改名')
+        if job['title'] != form.expected_title:
+            raise HTTPException(409, '播报名称已变化，请刷新后重新改名')
+        if not await records.transition(id, ['completed'], 'completed', title=title):
+            raise HTTPException(409, '播报状态已变化，请刷新后重试')
+        return await records.get(id, user.id)
+
+
 @router.get('/jobs/{id}')
 async def get_job(id: str, user=Depends(get_verified_user)):
     return await owned_job(id, user)
