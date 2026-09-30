@@ -92,6 +92,14 @@
 </script>
 
 <div class="space-y-2">
+	{#if voice?.engine === 'voicevox'}<p class="text-xs text-gray-500">
+			日语音色，请输入日语文案。发布时署名：{voice.credit}。<a
+				class="underline"
+				href="https://voicevox.hiroshiba.jp/"
+				target="_blank"
+				rel="noreferrer">查看角色使用条款</a
+			>
+		</p>{/if}
 	<button
 		type="button"
 		disabled={!voice || busy}

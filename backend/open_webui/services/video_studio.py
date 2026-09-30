@@ -30,6 +30,7 @@ PUBLIC_FIELDS = (
     'height',
     'input_type',
     'title',
+    'credit',
     'portrait_name',
     'audio_job_id',
     'provider_id',
@@ -146,6 +147,7 @@ async def create_preview(user, form):
     data = dict(
         **inputs,
         title=source_job['title'],
+        credit=source_job.get('credit'),
         portrait_name=portrait['name'],
         audio_asset=snapshot.name,
         full_duration=duration,
@@ -195,6 +197,7 @@ async def create_final(user, preview, expected_fingerprint):
     )
     data = {k: preview[k] for k in fields}
     data.update(
+        credit=preview.get('credit'),
         stage='final',
         preview_id=preview['id'],
         resolution=preview['final_resolution'],

@@ -99,6 +99,7 @@
 			] || job.status}</span
 		>
 	</div>
+	{#if job.credit}<p class="text-xs text-gray-500">发布署名：{job.credit}</p>{/if}
 	{#if job.error}<p class="text-sm text-red-600 dark:text-red-400">{job.error}</p>{/if}
 	{#if job.status === 'running'}<p class="text-xs text-gray-500">
 			首次加载模型可能需要稍等，可以离开页面，稍后返回查看。

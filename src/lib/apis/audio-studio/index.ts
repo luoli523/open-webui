@@ -8,6 +8,10 @@ export type Voice = {
 	ref_text?: string;
 	mode?: string;
 	version: string;
+	engine?: string;
+	language?: string;
+	credit?: string;
+	license_url?: string;
 };
 export type Job = {
 	id: string;
@@ -15,6 +19,7 @@ export type Job = {
 	text: string;
 	voice_id: string;
 	voice_name: string;
+	credit?: string;
 	speed: number;
 	status: string;
 	created_at: number;

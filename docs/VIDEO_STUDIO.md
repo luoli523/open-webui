@@ -97,3 +97,21 @@
 - 真实口型效果、账号额度、完整外部生成、浏览器交互和实际 TG 收件仍需验收；静态检查不能代替这些结果。
 
 接口参考：[HeyGen Image to Video](https://developers.heygen.com/image-to-video)、[HeyGen Assets](https://developers.heygen.com/assets)、[Telegram sendVideo](https://core.telegram.org/bots/api#sendvideo)。
+
+## VOICEVOX 日语动漫音色
+
+安装 VOICEVOX ENGINE 后，工作台自动合并 `/speakers` 中的所有 talk 音色；唱歌模型不列入播报菜单。音色名称标注「日语」，试听使用日语示例。现有中文 Qwen 和克隆音色保持原流程。VOICEVOX 不可用时仍能使用已有本地音色。
+
+- 官方包：VOICEVOX ENGINE 0.25.2，macOS arm64。
+- 安装目录：`~/.open-webui/voicevox/0.25.2/macos-arm64`。
+- 服务：`~/Library/LaunchAgents/com.luoli.voicevox.plist`，登录自动运行，仅监听 `127.0.0.1:50021`，4 CPU threads，禁用可变配置 API。
+- 日志：`~/.open-webui/voicevox/engine.log`。
+- 后端地址：`VOICEVOX_BASE_URL`（默认上述地址，只允许 loopback）。
+- 音色 ID：`voicevox_<style-id>`，音频仍通过原有持久队列产生 WAV/MP3，供下载或数字人配音。
+- 工作台显示 `VOICEVOX:角色名` 署名，音频和视频 TG caption 自动附带；下载后发布请保留署名，并遵守 [各角色条款](https://voicevox.hiroshiba.jp/)。
+- 重启：`launchctl kickstart -k gui/$(id -u)/com.luoli.voicevox`。
+- 停用：`launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.luoli.voicevox.plist`。
+- 重新启用：`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.luoli.voicevox.plist`。
+
+官方安装包 SHA-256：`6bd492249ac83c119f6fe38f2e44804e83ebc2c7f75295b21715080beb673a28`。
+模型和安装包不提交 Git。此安装未修改 `local-tts` 项目。

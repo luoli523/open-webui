@@ -41,7 +41,7 @@ async def send(job, user):
         with source.open('rb') as video:
             form = aiohttp.FormData()
             form.add_field('chat_id', config['chat_id'])
-            form.add_field('caption', job['title'][:200])
+            form.add_field('caption', job['title'][:200] + ('\n' + job['credit'] if job.get('credit') else ''))
             form.add_field('supports_streaming', 'true')
             form.add_field('video', video, filename='broadcast.mp4', content_type='video/mp4')
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=180)) as session:

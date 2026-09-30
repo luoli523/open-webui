@@ -79,6 +79,7 @@
 	<div class="flex flex-wrap items-start justify-between gap-2">
 		<div class="min-w-0">
 			<h3 class="break-words font-medium">{job.title}</h3>
+			{#if job.credit}<p class="text-xs text-gray-500">发布署名：{job.credit}</p>{/if}
 			<p class="mt-1 text-xs text-gray-500">
 				{job.stage === 'preview' ? '短预览' : '完整版'} · {job.portrait_name} · {job.resolution} · {job.aspect_ratio}
 				· {Math.ceil(job.duration)} 秒

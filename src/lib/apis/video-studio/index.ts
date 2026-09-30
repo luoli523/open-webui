@@ -28,6 +28,7 @@ export type Provider = {
 export type VideoJob = {
 	id: string;
 	title: string;
+	credit?: string;
 	status: string;
 	stage: 'preview' | 'final';
 	portrait_name: string;

@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, Response
 from open_webui.models import audio_studio as records
 from open_webui.models.config import Config
 from open_webui.services import audio_studio as service
+from open_webui.services import voicevox_studio
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from pydantic import BaseModel, Field
 
@@ -31,7 +32,8 @@ async def create_sample(id: str, user=Depends(get_verified_user)):
 
     voice = await service.voice_for(user, id)
     version = voice.get('version')
-    key = hashlib.sha256(f'{user.id}:{voice["id"]}:{version}:{SAMPLE_TEXT}:1'.encode()).hexdigest()
+    text = voicevox_studio.SAMPLE_TEXT if voice.get('engine') == 'voicevox' else SAMPLE_TEXT
+    key = hashlib.sha256(f'{user.id}:{voice["id"]}:{version}:{text}:1'.encode()).hexdigest()
     sample = await records.get(key, user.id)
     if sample:
         if sample['status'] == 'completed' and not service.audio_path(key).is_file():
@@ -50,11 +52,12 @@ async def create_sample(id: str, user=Depends(get_verified_user)):
             user.id,
             'sample',
             dict(
-                text=SAMPLE_TEXT,
+                text=text,
                 title=f'{voice["name"]} · 音色试听',
                 voice_id=voice['id'],
                 voice_name=voice['name'],
                 voice_version=version if voice['kind'] == 'clone' else None,
+                credit=voice.get('credit'),
                 speed=1,
             ),
             id=key,
@@ -160,6 +163,7 @@ async def generate(form: Generate, user=Depends(get_verified_user)):
             voice_id=voice['id'],
             voice_name=voice['name'],
             voice_version=voice.get('version') if voice['kind'] == 'clone' else None,
+            credit=voice.get('credit'),
             speed=form.speed,
             title=form.title.strip() or form.text.strip()[:30],
         ),

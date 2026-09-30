@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from open_webui.env import DATA_DIR
 from open_webui.models import audio_studio as records
 from open_webui.models.config import Config
+from open_webui.services import voicevox_studio
 
 log = logging.getLogger(__name__)
 DIRECTORY = Path(DATA_DIR) / 'audio-studio'
@@ -40,8 +41,15 @@ async def local(method, path, *, json=None, data=None, binary=False):
 
 
 async def voices(user):
-    result = await local('GET', '/v1/audio/voices')
-    return [v for v in result['voices'] if not v.get('owner_id') or v['owner_id'] == user.id]
+    results = await asyncio.gather(local('GET', '/v1/audio/voices'), voicevox_studio.voices(), return_exceptions=True)
+    available = []
+    if not isinstance(results[0], Exception):
+        available.extend(v for v in results[0]['voices'] if not v.get('owner_id') or v['owner_id'] == user.id)
+    if not isinstance(results[1], Exception):
+        available.extend(results[1])
+    if not available and isinstance(results[0], Exception):
+        raise results[0]
+    return available
 
 
 async def voice_for(user, id, edit=False):
@@ -93,20 +101,23 @@ async def execute(job):
     if not await records.transition(job['id'], ['queued'], 'running'):
         return
     try:
-        data = await local(
-            'POST',
-            '/v1/audio/speech',
-            json=dict(
-                model='qwen3-tts',
-                voice=job['voice_id'],
-                voice_version=job['voice_version'],
-                input=job['text'],
-                speed=job['speed'],
-                response_format='wav',
-                lang_code='chinese',
-            ),
-            binary=True,
-        )
+        if job['voice_id'].startswith('voicevox_'):
+            data = await voicevox_studio.synthesize(job)
+        else:
+            data = await local(
+                'POST',
+                '/v1/audio/speech',
+                json=dict(
+                    model='qwen3-tts',
+                    voice=job['voice_id'],
+                    voice_version=job['voice_version'],
+                    input=job['text'],
+                    speed=job['speed'],
+                    response_format='wav',
+                    lang_code='chinese',
+                ),
+                binary=True,
+            )
         path = audio_path(job['id'], 'wav')
         await asyncio.to_thread(path.write_bytes, data)
         os.chmod(path, 0o600)
@@ -187,6 +198,8 @@ async def send_telegram(job, user):
             form = aiohttp.FormData()
             form.add_field('chat_id', config['chat_id'])
             form.add_field('title', job['title'])
+            if job.get('credit'):
+                form.add_field('caption', job['credit'])
             form.add_field('audio', audio, filename=f'{job["id"]}.mp3', content_type='audio/mpeg')
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
                 async with session.post(
