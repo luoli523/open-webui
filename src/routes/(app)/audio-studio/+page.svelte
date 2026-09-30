@@ -67,7 +67,14 @@
 	onMount(() => {
 		load();
 		const timer = setInterval(() => refresh().catch(() => {}), 3000);
-		return () => clearInterval(timer);
+		const voiceTimer = setInterval(() => loadVoices().catch(() => {}), 15000);
+		const reloadVoices = () => loadVoices().catch(() => {});
+		window.addEventListener('focus', reloadVoices);
+		return () => {
+			clearInterval(timer);
+			clearInterval(voiceTimer);
+			window.removeEventListener('focus', reloadVoices);
+		};
 	});
 </script>
 
@@ -112,6 +119,7 @@
 			{:else if tab === 'voices'}<VoiceLibrary {voices} refresh={loadVoices} />
 			{:else if tab === 'portraits'}<PortraitLibrary
 					{voices}
+					refreshVoices={loadVoices}
 					onuse={(p) => {
 						videoPortrait = p.id;
 						if (voices.some((v) => v.id === p.default_voice_id)) voice = p.default_voice_id;

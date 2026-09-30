@@ -117,22 +117,19 @@ async def execute(job):
     if not await records.transition(job['id'], ['queued'], 'running'):
         return
     try:
-        if job['voice_id'].startswith('voicevox_'):
+        if job.get('voice_id', '').startswith('voicevox_'):
             raise HTTPException(410, 'VOICEVOX 日语音色已卸载，请选择中文或英文音色')
-        data = await local(
-            'POST',
-            '/v1/audio/speech',
-            json=dict(
-                model='qwen3-tts',
-                voice=job['voice_id'],
-                voice_version=job['voice_version'],
-                input=job['text'],
-                speed=job['speed'],
-                response_format='wav',
-                lang_code=job.get('language') or language_for(job['text']),
-            ),
-            binary=True,
+        payload = dict(
+            input=job['text'],
+            speed=job['speed'],
+            response_format='wav',
+            lang_code=job.get('language') or language_for(job['text']),
         )
+        if job['kind'] == 'design':
+            payload.update(model='qwen3-tts-voice-design', instructions=job['instructions'])
+        else:
+            payload.update(model='qwen3-tts', voice=job['voice_id'], voice_version=job['voice_version'])
+        data = await local('POST', '/v1/audio/speech', json=payload, binary=True)
         path = audio_path(job['id'], 'wav')
         await asyncio.to_thread(path.write_bytes, data)
         os.chmod(path, 0o600)
@@ -211,7 +208,8 @@ async def worker():
                     next_cleanup = time.time() + 60
                 jobs = await records.listing(status='queued', limit=10000)
                 samples = await records.listing(kind='sample', status='queued', limit=10000)
-                jobs = sorted(jobs + samples, key=lambda job: job['created_at'], reverse=True)
+                designs = await records.listing(kind='design', status='queued', limit=10000)
+                jobs = sorted(jobs + samples + designs, key=lambda job: job['created_at'], reverse=True)
                 if jobs:
                     await execute(jobs[-1])
                 else:

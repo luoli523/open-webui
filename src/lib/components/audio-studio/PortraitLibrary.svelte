@@ -7,6 +7,19 @@
 	import VoicePreview from './VoicePreview.svelte';
 	import FilePicker from './FilePicker.svelte';
 	export let voices: Voice[] = [];
+	export let refreshVoices: () => Promise<void>;
+	let refreshingVoices = false;
+	async function reloadVoices() {
+		if (refreshingVoices) return;
+		refreshingVoices = true;
+		try {
+			await refreshVoices();
+		} catch (e) {
+			toast.error(`${e}`);
+		} finally {
+			refreshingVoices = false;
+		}
+	}
 	export let onuse: (portrait: Portrait) => void = () => {};
 	let portraits: Portrait[] = [];
 	let editing: Portrait | null = null;
@@ -66,7 +79,10 @@
 			busy = false;
 		}
 	}
-	onMount(refresh);
+	onMount(() => {
+		refresh();
+		reloadVoices();
+	});
 </script>
 
 <div class="portraits grid min-w-0 grid-cols-1 items-start gap-8">
@@ -104,6 +120,16 @@
 						>{/each}</select
 				></label
 			>
+			<div class="flex items-center justify-between gap-2 text-xs text-gray-500">
+				<span>设计音色需先在「我的音色」生成并保存。</span>
+				<button
+					type="button"
+					disabled={refreshingVoices}
+					on:click={reloadVoices}
+					class="shrink-0 underline disabled:opacity-40"
+					>{refreshingVoices ? '刷新中…' : '刷新音色'}</button
+				>
+			</div>
 			<VoicePreview voice={voices.find((v) => v.id === voice)} />
 			<div class="flex flex-wrap gap-3">
 				<button

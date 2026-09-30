@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import re
+from typing import Literal
 
 import aiohttp
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -91,6 +92,53 @@ async def sample_audio(id: str, user=Depends(get_verified_user)):
     return FileResponse(
         service.audio_path(sample['id']), media_type='audio/mpeg', headers={'Cache-Control': 'private, no-store'}
     )
+
+
+class Design(BaseModel):
+    instructions: str = Field(min_length=1, max_length=2000)
+    text: str = Field(min_length=1, max_length=500)
+    language: Literal['chinese', 'english'] = 'chinese'
+
+
+@router.post('/voice-designs')
+async def create_design(form: Design, user=Depends(get_verified_user)):
+    if not form.instructions.strip() or not form.text.strip():
+        raise HTTPException(400, '请填写声音描述和试听文案')
+    pending = await records.listing(user.id, kind='design', status='queued', limit=3)
+    if len(pending) >= 3:
+        raise HTTPException(429, '声音设计任务较多，请等待生成完成')
+    return await records.create(
+        user.id,
+        'design',
+        dict(
+            instructions=form.instructions.strip(),
+            text=form.text.strip(),
+            language=form.language,
+            speed=1,
+            title='声音设计试听',
+        ),
+    )
+
+
+async def owned_design(id, user):
+    item = await records.get(id, user.id)
+    if not item or item['kind'] != 'design':
+        raise HTTPException(404, '声音设计不存在')
+    return item
+
+
+@router.get('/voice-designs/{id}')
+async def get_design(id: str, user=Depends(get_verified_user)):
+    return await owned_design(id, user)
+
+
+@router.get('/voice-designs/{id}/audio')
+async def design_audio(id: str, user=Depends(get_verified_user)):
+    item = await owned_design(id, user)
+    source = service.audio_path(id, 'wav')
+    if item['status'] != 'completed' or not source.is_file():
+        raise HTTPException(409, '设计音频尚未准备好')
+    return FileResponse(source, media_type='audio/wav', headers={'Cache-Control': 'private, no-store'})
 
 
 async def form_data(file, name=None, ref_text='', owner_id=None):

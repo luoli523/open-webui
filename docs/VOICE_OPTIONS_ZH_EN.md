@@ -24,9 +24,9 @@ Kokoro 也提供中文女声 `zf_xiaobei`、`zf_xiaoni`、`zf_xiaoxiao`、`zf_xi
 
 来源：[Kokoro 官方音色目录与试听入口](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md)。
 
-## 更贴近卡通需求：Qwen VoiceDesign（尚未安装）
+## 更贴近卡通需求：Qwen VoiceDesign（已接入工作台）
 
-VoiceDesign 支持按描述创建声音，生成参考录音后可交给现有 Base 模型保存为可复用音色。建议先制作以下原创角色方向；这些是设计提案，不是已经存在或试听确认的音色。
+local-tts 已提供 VoiceDesign API，工作台「我的音色 → 文字设计音色」可调用。VoiceDesign 支持按描述创建声音，生成参考录音后可交给现有 Base 模型保存为可复用音色。建议先制作以下原创角色方向；这些是设计提案，不是已经存在或试听确认的音色。
 
 | 方向 | 描述建议 | 语言 |
 | --- | --- | --- |

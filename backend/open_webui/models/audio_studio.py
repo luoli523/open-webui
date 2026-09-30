@@ -70,7 +70,7 @@ async def recover():
     async with get_async_db_context() as db:
         await db.execute(
             update(StudioRecord)
-            .where(StudioRecord.kind.in_(['job', 'sample']), StudioRecord.status == 'running')
+            .where(StudioRecord.kind.in_(['job', 'sample', 'design']), StudioRecord.status == 'running')
             .values(status='interrupted')
         )
         await db.execute(

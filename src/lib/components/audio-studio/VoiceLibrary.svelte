@@ -4,6 +4,7 @@
 	import { toast } from 'svelte-sonner';
 	import { studio, type Voice } from '$lib/apis/audio-studio';
 	import VoiceRecorder from './VoiceRecorder.svelte';
+	import VoiceDesigner from './VoiceDesigner.svelte';
 	import VoicePreview from './VoicePreview.svelte';
 	import FilePicker from './FilePicker.svelte';
 	export let voices: Voice[] = [];
@@ -12,7 +13,8 @@
 	let name = '';
 	let text = '';
 	let file: File | null = null;
-	let source: 'upload' | 'record' = 'upload';
+	let source: 'upload' | 'record' | 'design' = 'upload';
+	let designBusy = false;
 	let saving = false;
 	let transcribing = false;
 	let preview = '';
@@ -67,6 +69,14 @@
 		document.getElementById(`voice-tab-${tabs[next].id}`)?.focus();
 	}
 
+	function clearRecording() {
+		generation += 1;
+		file = null;
+		text = '';
+		if (preview) URL.revokeObjectURL(preview);
+		preview = '';
+	}
+
 	function selectFile(next: File, transcript = '') {
 		generation += 1;
 		file = next;
@@ -84,6 +94,7 @@
 		preview = '';
 	}
 	function edit(v: Voice) {
+		source = 'upload';
 		reset();
 		editing = v;
 		name = v.name;
@@ -100,6 +111,14 @@
 				method: editing ? 'PUT' : 'POST',
 				body: form
 			});
+			if (source === 'design') {
+				try {
+					localStorage.removeItem(`audio-studio:voice-design:${$user?.id}`);
+				} catch {
+					/* Optional resume hint. */
+				}
+				source = 'upload';
+			}
 			reset();
 			switchTab('clone');
 			search = '';
@@ -158,17 +177,30 @@
 <div class="voice-columns grid min-w-0 grid-cols-1 gap-6">
 	<section class="min-w-0 space-y-4">
 		<h2 class="font-semibold">{editing ? `编辑音色 · ${editing.name}` : '创建新音色'}</h2>
-		<div class="flex gap-2">
+		<div class="flex flex-wrap gap-2">
 			<button
 				class="rounded-lg px-3 py-2 text-sm {source === 'upload'
 					? 'bg-gray-100 dark:bg-gray-800'
 					: ''}"
+				disabled={saving || designBusy}
 				on:click={() => (source = 'upload')}>上传录音</button
 			><button
 				class="rounded-lg px-3 py-2 text-sm {source === 'record'
 					? 'bg-gray-100 dark:bg-gray-800'
 					: ''}"
+				disabled={saving || designBusy}
 				on:click={() => (source = 'record')}>麦克风录制</button
+			>
+			<button
+				type="button"
+				disabled={saving || designBusy}
+				class="rounded-lg px-3 py-2 text-sm disabled:opacity-40 {source === 'design'
+					? 'bg-gray-100 dark:bg-gray-800'
+					: ''}"
+				on:click={() => {
+					if (source !== 'design') clearRecording();
+					source = 'design';
+				}}>文字设计音色</button
 			>
 		</div>
 		{#if source === 'upload'}
@@ -180,7 +212,13 @@
 				disabled={saving || transcribing}
 				onselect={selectFile}
 			/>
-		{:else}<VoiceRecorder onrecord={selectFile} />{/if}
+		{:else if source === 'record'}<VoiceRecorder onrecord={selectFile} />
+		{:else}<VoiceDesigner
+				disabled={saving || transcribing}
+				onrecord={selectFile}
+				onclear={clearRecording}
+				onbusy={(value) => (designBusy = value)}
+			/>{/if}
 		{#if preview}<audio class="w-full" src={preview} controls preload="metadata"
 				><track kind="captions" /></audio
 			>{/if}
@@ -216,10 +254,12 @@
 		<div class="flex gap-3">
 			<button
 				class="rounded-lg bg-gray-900 px-4 py-2.5 text-sm text-white disabled:opacity-40 dark:bg-white dark:text-black"
-				disabled={saving || transcribing || !name.trim() || (!editing && !file)}
+				disabled={saving || transcribing || designBusy || !name.trim() || (!editing && !file)}
 				on:click={save}
 				>{saving ? '正在保存…' : text.trim() ? '保存音色' : '仅用录音保存音色'}</button
-			>{#if editing}<button class="text-sm" on:click={reset}>取消编辑</button>{/if}
+			>{#if editing}<button class="text-sm" disabled={saving || designBusy} on:click={reset}
+					>取消编辑</button
+				>{/if}
 		</div>
 	</section>
 	<section class="min-w-0">
@@ -292,8 +332,10 @@
 					{#if voice.kind === 'clone' && (voice.owner_id === $user?.id || $user?.role === 'admin')}<div
 							class="flex gap-4 text-sm"
 						>
-							<button on:click={() => edit(voice)}>编辑</button><button
+							<button disabled={saving || designBusy} on:click={() => edit(voice)}>编辑</button
+							><button
 								class="text-red-600 dark:text-red-400"
+								disabled={saving || designBusy}
 								on:click={() => (deleting = voice.id)}>删除</button
 							>
 						</div>{/if}
