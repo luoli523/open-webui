@@ -60,7 +60,7 @@
 	async function notCreated() {
 		if (
 			!confirm(
-				`请先在 HeyGen 后台搜索 OWUI-${job.id}。\n确定没有创建这个任务？确认后才允许重新生成，以免重复计费。`
+				`请先在 HeyGen 后台搜索 OWUI-${job.id}-${job.attempt}。\n确定没有创建这个任务？确认后才允许重新生成，以免重复计费。`
 			)
 		)
 			return;
@@ -122,7 +122,7 @@
 					? '请在 HeyGen 后台核对。'
 					: '请联系管理员核对。'}
 			</p>
-			<p class="break-all text-xs">后台任务标题：OWUI-{job.id}</p>
+			<p class="break-all text-xs">后台任务标题：OWUI-{job.id}-{job.attempt}</p>
 			{#if isAdmin}
 				<label class="block"
 					>已创建的视频 ID<input

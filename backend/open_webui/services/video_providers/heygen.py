@@ -88,8 +88,8 @@ class HeyGen(VideoProvider):
                 'audio_asset_id': assets['audio'],
                 'resolution': request['resolution'],
                 'aspect_ratio': request['aspect_ratio'],
-                'title': f'OWUI-{request["id"]}',
-                'callback_id': request['id'],
+                'title': f'OWUI-{request["id"]}-{request["attempt"]}',
+                'callback_id': f'{request["id"]}:{request["attempt"]}',
             },
         )
         value = data.get('video_id') or data.get('id')

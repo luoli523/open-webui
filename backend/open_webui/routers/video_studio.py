@@ -162,7 +162,10 @@ async def resolve_submission(id: str, form: ResolveSubmission, user=Depends(get_
             result = await provider.poll(form.external_id)
         except ProviderError as exc:
             raise HTTPException(400, str(exc)) from None
-        if result.get('title') != 'OWUI-' + id and result.get('callback_id') != id:
+        if (
+            result.get('title') != f'OWUI-{id}-{item["attempt"]}'
+            and result.get('callback_id') != f'{id}:{item["attempt"]}'
+        ):
             raise HTTPException(400, '此视频的标题或 callback_id 与当前任务不匹配')
         updated = await records.change(item, 'processing', external_id=form.external_id, error=None, next_poll=0)
     elif form.confirmed_not_created:
