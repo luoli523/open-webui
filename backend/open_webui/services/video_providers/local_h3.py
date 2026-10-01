@@ -19,8 +19,8 @@ class LocalH3(VideoProvider):
         input_types=['image'], aspect_ratios=['1:1'], resolutions=['512x512'],
         preview_resolution='512x512', final_resolution='512x512',
         max_asset_bytes=32*1024*1024, max_duration_seconds=300, supports_cancel=True,
-        supported_steps=[8,12,20], default_steps=8, long_video_enabled=False,
-        duration_note='默认 8 步；步数越高耗时越长。先生成短片预览。')
+        supported_steps=[8,12,20], default_steps=12, long_video_enabled=False,
+        duration_note='默认 12 步；步数越高耗时越长。先生成短片预览。')
 
     async def request(self, method, path, submission=False, **kwargs):
         try:
@@ -59,7 +59,7 @@ class LocalH3(VideoProvider):
 
     async def submit(self, request, assets):
         data = await self.request('POST', '/v1/video/jobs', submission=True, json=dict(
-            image_id=assets['portrait'], audio_id=assets['audio'], steps=request.get('steps', 8),
+            image_id=assets['portrait'], audio_id=assets['audio'], steps=request.get('steps', 12),
             seed=request.get('seed', 42), idempotency_key='owui:'+request['id']+':'+str(request['attempt'])))
         try:
             return self.identifier(data.get('id'))

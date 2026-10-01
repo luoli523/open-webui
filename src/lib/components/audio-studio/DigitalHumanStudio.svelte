@@ -31,13 +31,11 @@
 	let narrationMode = 'existing';
 	let textAudio = '';
 	let provider = 'local_h3';
-	let steps = 8;
+	let steps = 12;
 	const stepSeconds: Record<number, number> = { 8: 430, 12: 626, 20: 1003 };
 	let previewStart = 0;
 	let previewSeconds = 5;
 	let ratio = '1:1';
-	let consent = false;
-	let lastSelection = '';
 	let busy = false;
 	let loading = true;
 	let refreshing = false;
@@ -45,15 +43,10 @@
 	$: engine = providers.find((p) => p.id === provider);
 	$: if (engine && !engine.aspect_ratios.includes(ratio)) ratio = engine.aspect_ratios[0];
 	$: if (engine?.supported_steps && !engine.supported_steps.includes(steps))
-		steps = engine.default_steps ?? 8;
+		steps = engine.default_steps ?? 12;
 	$: selectedPortrait = portraits.find((p) => p.id === portrait);
 	$: completedAudio = audioJobs.filter((j) => j.status === 'completed');
 	$: selectedAudio = narrationMode === 'text' ? textAudio : audio;
-	$: selection = `${portrait}:${selectedPortrait?.version}:${selectedAudio}:${provider}:${ratio}:${narrationMode}:${steps}:${previewStart}:${previewSeconds}`;
-	$: if (selection !== lastSelection) {
-		consent = false;
-		lastSelection = selection;
-	}
 	async function refresh() {
 		if (refreshing) return;
 		refreshing = true;
@@ -87,10 +80,8 @@
 				aspect_ratio: ratio,
 				steps,
 				preview_start: previewStart,
-				preview_seconds: previewSeconds,
-				consent
+				preview_seconds: previewSeconds
 			});
-			consent = false;
 			await refresh();
 			toast.success('已提交预览，请在视频记录中查看');
 		} catch (e) {
@@ -195,7 +186,7 @@
 					class="mt-2 w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
 				>
 					{#each engine?.supported_steps ?? [8, 12, 20] as count}<option value={count}
-							>{count} 步{count === 8 ? '（默认）' : ''}</option
+							>{count} 步{count === (engine?.default_steps ?? 12) ? '（默认）' : ''}</option
 						>{/each}
 				</select></label
 			>
@@ -236,19 +227,15 @@
 			</p>
 		{/if}
 
-		<label
-			class="flex items-start gap-2 rounded-lg border border-gray-200 p-3 text-sm leading-6 dark:border-gray-700"
-			><input type="checkbox" bind:checked={consent} class="mt-1" /><span
-				>我有权使用所选肖像和配音，{engine?.cloud
-					? '同意将照片与成品配音上传至所选引擎，'
-					: ''}{engine?.paid
-					? '确认本次预览会产生费用，按引擎账户实际计费。'
-					: '确认生成预览。'}</span
-			></label
-		>
+		{#if engine?.cloud || engine?.paid}
+			<p class="text-xs leading-5 text-gray-500">
+				{engine?.cloud ? '照片与成品配音将上传至所选引擎。' : ''}
+				{engine?.paid ? '生成预览会产生费用，按引擎账户实际计费。' : ''}
+			</p>
+		{/if}
+
 		<button
 			disabled={busy ||
-				!consent ||
 				!selectedAudio ||
 				!selectedPortrait ||
 				!engine?.enabled ||

@@ -143,10 +143,9 @@ class Preview(BaseModel):
     audio_job_id: str = Field(max_length=100)
     provider_id: str = Field(default='heygen', max_length=60)
     aspect_ratio: str = Field(default='16:9', max_length=10)
-    steps: Literal[8, 12, 20] = 8
+    steps: Literal[8, 12, 20] = 12
     preview_start: float = Field(default=0, ge=0, le=298, allow_inf_nan=False)
     preview_seconds: float = Field(default=5, ge=2, le=15, allow_inf_nan=False)
-    consent: Literal[True]
 
 
 @router.post('/jobs')

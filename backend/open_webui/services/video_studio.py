@@ -311,7 +311,6 @@ async def _create_preview(user, form):
         stage='preview',
         resolution=caps['preview_resolution'],
         fingerprint=stamp,
-        consent_at=int(time.time()),
         assets={},
         attempt=1,
         next_poll=0,
