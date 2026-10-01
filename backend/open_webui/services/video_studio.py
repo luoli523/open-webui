@@ -18,7 +18,7 @@ from open_webui.services.video_providers import PROVIDERS, provider_for
 from open_webui.services.video_providers.base import ProviderError, SubmissionUnknown
 
 log = logging.getLogger(__name__)
-ACTIVE = ['queued', 'preparing', 'submitting', 'processing', 'downloading']
+ACTIVE = ['queued', 'preparing', 'submitting', 'processing', 'downloading', 'cancelling']
 PUBLIC_FIELDS = (
     'id',
     'status',
@@ -51,13 +51,15 @@ PUBLIC_FIELDS = (
     'auto_captions',
     'approved_at',
     'attempt',
+    'steps', 'seed', 'preview_start', 'preview_seconds', 'progress', 'can_generate_final',
+    'estimated_seconds',
 )
 
 
 def public(item):
     result = {k: item[k] for k in PUBLIC_FIELDS if k in item}
     if item['kind'] == 'job':
-        result['retry_requires_payment'] = not item.get('external_id') or bool(item.get('remote_failed'))
+        result['retry_requires_payment'] = item.get('provider_id') != 'local_h3' and (not item.get('external_id') or bool(item.get('remote_failed')))
     return result
 
 
@@ -138,7 +140,7 @@ async def cleanup_deleted():
 async def delete_record(id, user):
     async with asset_lock():
         item = await owned(id, user)
-        if item['status'] not in ('completed', 'failed'):
+        if item['status'] not in ('completed', 'failed', 'cancelled'):
             raise HTTPException(409, '请等待生成结束，或先核实提交结果，再删除记录')
         from open_webui.services.video_captions import identifier
 
@@ -157,8 +159,9 @@ async def delete_record(id, user):
         return {'ok': True, 'freed_bytes': 0, 'cleanup_pending': True}
 
 
-async def settings():
-    return await Config.get('video.studio.settings', {}) or {}
+async def settings(provider='heygen'):
+    key = 'video.studio.local_h3' if provider == 'local_h3' else 'video.studio.settings'
+    return await Config.get(key, {}) or {}
 
 
 async def configuration(version):
@@ -183,6 +186,43 @@ async def save_settings(api_key, enabled):
     )
 
 
+async def save_local_settings(url, enabled):
+    from open_webui.services.video_providers.local_h3 import base_url
+    try:
+        url = base_url(url)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    config = {'base_url': url}
+    if enabled:
+        try:
+            caps = await provider_for('local_h3', config).request('GET', '/v1/video/capabilities')
+        except ProviderError as exc:
+            raise HTTPException(503, str(exc)) from None
+        if not caps.get('ready'):
+            raise HTTPException(409, '本地 H3 模型尚未准备好')
+    version = uuid.uuid4().hex
+    await Config.upsert({'video.studio.credentials.'+version: config,
+                         'video.studio.local_h3': dict(enabled=enabled, config_version=version, base_url=url)})
+
+
+async def cancel_local(job):
+    if job['provider_id'] != 'local_h3':
+        raise HTTPException(409, '该引擎不支持取消')
+    if job['status'] in ('completed', 'failed', 'cancelled') and not job.get('submission_pending'):
+        return job
+    # CAS prevents the worker from proceeding after a preparation cancellation.
+    updated = await records.change(job, 'cancelling' if job.get('external_id') or job.get('submission_pending') or job['status'] == 'submitting' else 'cancelled')
+    if not updated:
+        raise HTTPException(409, '任务状态已变化，请刷新后重试')
+    if updated.get('external_id'):
+        try:
+            await provider_for('local_h3', await configuration(job['config_version'])).cancel(job['external_id'])
+        except ProviderError as exc:
+            # The worker will retry cancellation with the durable external ID.
+            await records.change(updated, error=str(exc))
+    return await records.get(job['id'])
+
+
 def fingerprint(data):
     return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
@@ -193,12 +233,19 @@ async def create_preview(user, form):
 
 
 async def _create_preview(user, form):
-    config = await settings()
+    config = await settings(form.provider_id)
     if not config.get('enabled') or not config.get('config_version'):
         raise HTTPException(409, '请管理员先配置并启用视频引擎')
     if form.provider_id not in PROVIDERS:
         raise HTTPException(400, '视频引擎尚未安装')
-    caps = PROVIDERS[form.provider_id].capabilities
+    caps = dict(PROVIDERS[form.provider_id].capabilities)
+    if form.provider_id == 'local_h3':
+        try:
+            caps.update(await provider_for('local_h3', await configuration(config['config_version'])).request('GET', '/v1/video/capabilities'))
+        except ProviderError as exc:
+            raise HTTPException(503, str(exc)) from None
+        if not caps.get('ready') or form.steps not in caps.get('supported_steps', []):
+            raise HTTPException(422, 'H3 未就绪或不支持所选步数')
     if form.aspect_ratio not in caps['aspect_ratios']:
         raise HTTPException(400, '该引擎不支持此画面比例')
     portrait = await owned(form.portrait_id, user, 'portrait')
@@ -214,8 +261,10 @@ async def _create_preview(user, form):
         duration, streams = await media.probe(source)
     except (ValueError, FileNotFoundError):
         raise HTTPException(400, '无法读取配音，请检查文件及 FFmpeg') from None
-    if duration > caps['max_duration_seconds'] or source.stat().st_size > caps['max_asset_bytes']:
+    if duration > (300 if form.provider_id == 'local_h3' else caps['max_duration_seconds']) or source.stat().st_size > caps['max_asset_bytes']:
         raise HTTPException(400, '首版视频支持不超过 5 分钟、32 MB 的播报')
+    if form.provider_id == 'local_h3' and duration - form.preview_start < 2:
+        raise HTTPException(422, '预览起点后需至少保留 2 秒音频')
     digest = await asyncio.to_thread(media.digest, source)
     inputs = dict(
         portrait_asset=portrait['asset'],
@@ -229,6 +278,9 @@ async def _create_preview(user, form):
         preview_resolution=caps['preview_resolution'],
         final_resolution=caps['final_resolution'],
     )
+    if form.provider_id == 'local_h3':
+        inputs.update(steps=form.steps, seed=42, preview_start=form.preview_start,
+                      preview_seconds=min(form.preview_seconds, duration-form.preview_start))
     stamp = fingerprint(inputs)
     # Same immutable inputs have one preview; repeat paid generation is an explicit retry action.
     id = fingerprint({'user': user.id, 'preview': stamp})
@@ -253,7 +305,9 @@ async def _create_preview(user, form):
         portrait_name=portrait['name'],
         audio_asset=snapshot.name,
         full_duration=duration,
-        duration=min(15, duration),
+        duration=inputs.get('preview_seconds', min(15, duration)),
+        can_generate_final=form.provider_id != 'local_h3' or bool(caps.get('long_video_enabled')) or duration <= 15,
+        estimated_seconds=(inputs.get('preview_seconds', min(15, duration)) / (107/24) * {8:430,12:626,20:1003}[form.steps]) if form.provider_id == 'local_h3' else None,
         stage='preview',
         resolution=caps['preview_resolution'],
         fingerprint=stamp,
@@ -279,7 +333,9 @@ async def _create_final(user, preview, expected_fingerprint):
         raise HTTPException(409, '请先完成并观看预览')
     if expected_fingerprint != preview['fingerprint']:
         raise HTTPException(409, '预览内容已变化，请重新确认')
-    config = await settings()
+    config = await settings(preview['provider_id'])
+    if preview['provider_id'] == 'local_h3' and not preview.get('can_generate_final'):
+        raise HTTPException(409, '长片分段尚未启用，请先使用短片预览')
     if not config.get('enabled'):
         raise HTTPException(409, '管理员已暂停新的视频生成')
     id = fingerprint({'preview': preview['id'], 'attempt': preview['attempt'], 'stage': 'final'})
@@ -306,6 +362,8 @@ async def _create_final(user, preview, expected_fingerprint):
         'fingerprint',
     )
     data = {k: preview[k] for k in fields}
+    if preview['provider_id'] == 'local_h3':
+        data.update(steps=preview['steps'], seed=preview.get('seed',42), can_generate_final=True)
     data.update(
         credit=preview.get('credit'),
         source_text=preview.get('source_text', ''),
@@ -327,6 +385,16 @@ async def _create_final(user, preview, expected_fingerprint):
 
 
 async def retry(job, paid=False):
+    if job['provider_id'] == 'local_h3' and job['status'] in ('failed','cancelled'):
+        if not (await settings('local_h3')).get('enabled'):
+            raise HTTPException(409, '本地 H3 已暂停新任务')
+        if job.get('external_id'):
+            provider = provider_for('local_h3', await configuration(job['config_version']))
+            result = await provider.poll(job['external_id'])
+            if result['state'] in ('failed','cancelled'):
+                await provider.retry(job['external_id'])
+            return await records.change(job, 'processing', error=None, remote_failed=False, failures=0, next_poll=0)
+        return await records.change(job, 'queued', error=None, failures=0, next_poll=0)
     if job['status'] != 'failed':
         raise HTTPException(409, '当前状态不能重试；提交结果待核实的任务须先核对')
     if job.get('external_id') and not job.get('remote_failed'):
@@ -354,6 +422,17 @@ async def retry(job, paid=False):
 async def execute(job):
     try:
         provider = provider_for(job['provider_id'], await configuration(job['config_version']))
+        if job['status'] == 'cancelling':
+            if not job.get('external_id'):
+                external_id = await provider.submit(job, job['assets'])
+                job = await records.change(job, external_id=external_id, submission_pending=False)
+                if not job:
+                    return
+            await provider.cancel(job['external_id'])
+            result = await provider.poll(job['external_id'])
+            if result['state'] in ('cancelled','failed','completed'):
+                await records.change(job, 'cancelled', error=None, submission_pending=False)
+            return
         if job['status'] == 'queued':
             job = await records.change(job, 'preparing', error=None)
             if not job:
@@ -368,7 +447,10 @@ async def execute(job):
             target = full_audio
             if job['stage'] == 'preview':
                 target = media.path(job['id'] + '-preview.mp3')
-                duration = await media.preview_audio(full_audio, target)
+                if job['provider_id'] == 'local_h3':
+                    duration = await media.local_preview_audio(full_audio, target, job.get('preview_start',0), job.get('preview_seconds',5))
+                else:
+                    duration = await media.preview_audio(full_audio, target)
                 job = await records.change(job, duration=duration)
                 if not job:
                     return
@@ -378,17 +460,24 @@ async def execute(job):
                     job = await records.change(job, assets={**job['assets'], key: external_asset})
                     if not job:
                         return
-            job = await records.change(job, 'submitting', submitted_at=int(time.time()))
+            job = await records.change(job, 'submitting', submitted_at=int(time.time()), submission_pending=job['provider_id']=='local_h3')
             if not job:
                 return
             external_id = await provider.submit(job, job['assets'])
-            job = await records.change(job, 'processing', external_id=external_id, next_poll=int(time.time()) + 10)
+            updated = await records.change(job, 'processing', external_id=external_id, submission_pending=False, next_poll=int(time.time()) + 10)
+            if not updated and job['provider_id'] == 'local_h3':
+                current = await records.get(job['id'])
+                if current and current['status'] in ('cancelled','cancelling'):
+                    await records.change(current, 'cancelling', external_id=external_id, submission_pending=False)
+                    await provider.cancel(external_id)
             return
         if job['status'] == 'processing':
             result = await provider.poll(job['external_id'])
-            if result['state'] == 'failed':
+            if result['state'] == 'cancelled':
+                await records.change(job, 'cancelled', error=None, submission_pending=False)
+            elif result['state'] == 'failed':
                 await records.change(
-                    job, 'failed', remote_failed=True, error='引擎报告生成失败，请到引擎后台核对原因和扣费'
+                    job, 'failed', remote_failed=True, error=result.get('error') or ('本地任务中断或失败，可重试未完成片段' if job['provider_id']=='local_h3' else '引擎报告生成失败，请到引擎后台核对原因和扣费')
                 )
             elif result['state'] == 'completed':
                 job = await records.change(job, 'downloading')
@@ -399,14 +488,15 @@ async def execute(job):
                 try:
                     await provider.fetch_result(result, temp)
                     os.chmod(temp, 0o600)
-                    await media.validate_video(temp, job['duration'])
+                    expected_duration = result.get('duration') if job['provider_id'] == 'local_h3' else job['duration']
+                    await media.validate_video(temp, expected_duration or job['duration'])
                     video_hash = await asyncio.to_thread(media.digest, temp)
                     os.replace(temp, target)
-                    await records.change(job, 'completed', video_hash=video_hash, error=None, failures=0)
+                    await records.change(job, 'completed', video_hash=video_hash, error=None, failures=0, duration=expected_duration or job['duration'])
                 finally:
                     temp.unlink(missing_ok=True)
             else:
-                await records.change(job, next_poll=int(time.time()) + 15, failures=0, error=None)
+                await records.change(job, next_poll=int(time.time()) + (3 if job['provider_id']=='local_h3' else 15), failures=0, error=None, progress=result.get('progress'))
     except asyncio.CancelledError:
         # Startup recovery resolves the saved stage; never silently resubmit an uncertain POST.
         raise
@@ -417,6 +507,13 @@ async def execute(job):
         message = (
             str(exc) if isinstance(exc, (ProviderError, ValueError)) else '视频处理异常，请检查素材、配置和服务状态'
         )
+        if current['status'] in ('cancelled', 'cancelling'):
+            return
+        if current['status'] == 'submitting' and current['provider_id'] == 'local_h3':
+            uncertain = isinstance(exc, SubmissionUnknown) or not isinstance(exc, ProviderError)
+            await records.change(current, 'queued' if uncertain else 'failed',
+                                 submission_pending=uncertain, error=message, next_poll=int(time.time())+5)
+            return
         if current['status'] == 'submitting':
             state = (
                 'failed'
@@ -450,6 +547,8 @@ async def worker():
             state = {'preparing': 'queued', 'submitting': 'submission_unknown', 'downloading': 'processing'}[
                 item['status']
             ]
+            if item.get('provider_id') == 'local_h3' and state == 'submission_unknown':
+                state = 'queued'  # replay the same durable idempotency key
             await records.change(
                 item,
                 state,
@@ -467,7 +566,7 @@ async def worker():
                     except OSError:
                         log.warning('Video file cleanup failed; retrying later')
                     next_cleanup = time.time() + 60
-                jobs = await records.listing(statuses=['queued', 'processing'], limit=10000, oldest=True)
+                jobs = await records.listing(statuses=['queued', 'processing', 'cancelling'], limit=10000, oldest=True)
                 for job in jobs:
                     if job.get('next_poll', 0) <= time.time():
                         await execute(job)

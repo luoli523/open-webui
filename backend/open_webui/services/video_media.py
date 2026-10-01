@@ -222,3 +222,16 @@ async def thumbnail(source, target):
         os.replace(temp, target)
     finally:
         temp.unlink(missing_ok=True)
+
+
+async def local_preview_audio(source, target, start, duration):
+    temporary = path(target.name + '.tmp.mp3')
+    try:
+        await command('ffmpeg', '-nostdin', '-v', 'error', '-y', '-protocol_whitelist', 'file,pipe',
+                      '-ss', start, '-i', source, '-t', duration, '-c:a', 'libmp3lame', '-b:a', '128k', temporary)
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    actual, _ = await probe(target)
+    return actual

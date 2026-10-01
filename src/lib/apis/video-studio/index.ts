@@ -11,6 +11,9 @@ export type Portrait = {
 	input_type: string;
 };
 export type Provider = {
+	supported_steps?: number[];
+	default_steps?: number;
+	long_video_enabled?: boolean;
 	id: string;
 	name: string;
 	cloud: boolean;
@@ -26,6 +29,10 @@ export type Provider = {
 	duration_note: string;
 };
 export type VideoJob = {
+	steps?: number;
+	estimated_seconds?: number;
+	can_generate_final?: boolean;
+	progress?: { stage?: string; step?: number; total?: number; segment?: number; segments?: number };
 	auto_captions?: boolean;
 	caption_ready?: boolean;
 	caption_hash?: string;

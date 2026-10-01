@@ -261,3 +261,20 @@ If you believe you've found a security vulnerability, or something that shouldn'
 ---
 
 Created by [Timothy Jaeryang Baek](https://github.com/tjbck) - Let's make Open WebUI even more amazing together! 💪
+
+
+## 本地 H3 数字人视频
+
+本项目的 `/audio-studio` 工作台支持连接独立 `local-tts` 项目的 H3 服务。
+在 Apple Silicon 主机中安装并启动该项目的视频服务（`./video.sh install`、`./video.sh enable`），
+然后由管理员在工作台「本地 H3 设置」启用 `http://127.0.0.1:8092`。
+浏览器通过本项目后端使用服务，模型和 GPU 调度由 local-tts 管理。
+
+- 选择人物图片与已有配音，指定短预览的起点和长度；输出 512×512 视频。
+- 步数支持 8 / 12 / 20，默认 8；任务历史和重试保留所选步数。
+- 支持后台排队、进度、取消、失败重试、播放和下载；字幕依据最终生成音轨转写。
+- 本地 H3 与 HeyGen 分别配置，已有任务保留原引擎。
+- 长配音可截取 2–15 秒预览；完整长片入口受 H3 服务能力开关控制，默认关闭，待相邻片段连续性评审后启用。
+- H3 首版仅支持 Apple Silicon；语音服务的 Ubuntu 支持不代表视频后端支持 Ubuntu。
+
+工作台和模型服务需要运行在同一主机；若 WebUI 在容器内，容器回环地址无法直接访问宿主服务。

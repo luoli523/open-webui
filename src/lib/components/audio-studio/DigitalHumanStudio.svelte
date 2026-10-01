@@ -14,6 +14,7 @@
 	import StudioMedia from './StudioMedia.svelte';
 	import VideoJobResult from './VideoJobResult.svelte';
 	import VideoProviderSettings from './VideoProviderSettings.svelte';
+	import LocalVideoSettings from './LocalVideoSettings.svelte';
 	import TextNarration from './TextNarration.svelte';
 	import WorkingIndicator from './WorkingIndicator.svelte';
 	export let audioJobs: Job[] = [];
@@ -29,8 +30,12 @@
 	let audio = initialAudio;
 	let narrationMode = 'existing';
 	let textAudio = '';
-	let provider = 'heygen';
-	let ratio = '16:9';
+	let provider = 'local_h3';
+	let steps = 8;
+	const stepSeconds: Record<number, number> = { 8: 430, 12: 626, 20: 1003 };
+	let previewStart = 0;
+	let previewSeconds = 5;
+	let ratio = '1:1';
 	let consent = false;
 	let lastSelection = '';
 	let busy = false;
@@ -38,10 +43,13 @@
 	let refreshing = false;
 	let error = '';
 	$: engine = providers.find((p) => p.id === provider);
+	$: if (engine && !engine.aspect_ratios.includes(ratio)) ratio = engine.aspect_ratios[0];
+	$: if (engine?.supported_steps && !engine.supported_steps.includes(steps))
+		steps = engine.default_steps ?? 8;
 	$: selectedPortrait = portraits.find((p) => p.id === portrait);
 	$: completedAudio = audioJobs.filter((j) => j.status === 'completed');
 	$: selectedAudio = narrationMode === 'text' ? textAudio : audio;
-	$: selection = `${portrait}:${selectedPortrait?.version}:${selectedAudio}:${provider}:${ratio}:${narrationMode}`;
+	$: selection = `${portrait}:${selectedPortrait?.version}:${selectedAudio}:${provider}:${ratio}:${narrationMode}:${steps}:${previewStart}:${previewSeconds}`;
 	$: if (selection !== lastSelection) {
 		consent = false;
 		lastSelection = selection;
@@ -77,6 +85,9 @@
 				audio_job_id: selectedAudio,
 				provider_id: provider,
 				aspect_ratio: ratio,
+				steps,
+				preview_start: previewStart,
+				preview_seconds: previewSeconds,
 				consent
 			});
 			consent = false;
@@ -176,11 +187,55 @@
 					>{/each}</select
 			></label
 		>
-		<p class="text-xs leading-5 text-gray-500">
-			预览取开头最多15秒（{engine?.preview_resolution ??
-				'720p'}），完整版使用完整配音（{engine?.final_resolution ??
-				'1080p'}）。{engine?.duration_note ?? ''}
-		</p>
+
+		{#if provider === 'local_h3'}
+			<label class="block text-sm"
+				>生成步数<select
+					bind:value={steps}
+					class="mt-2 w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
+				>
+					{#each engine?.supported_steps ?? [8, 12, 20] as count}<option value={count}
+							>{count} 步{count === 8 ? '（默认）' : ''}</option
+						>{/each}
+				</select></label
+			>
+			<div class="grid grid-cols-2 gap-3">
+				<label class="block text-sm"
+					>预览起点（秒）<input
+						type="number"
+						min="0"
+						max="298"
+						step="0.1"
+						bind:value={previewStart}
+						class="mt-2 w-full rounded-lg border border-gray-200 bg-transparent p-3 dark:border-gray-700"
+					/></label
+				>
+				<label class="block text-sm"
+					>预览长度（秒）<input
+						type="number"
+						min="2"
+						max="15"
+						step="0.1"
+						bind:value={previewSeconds}
+						class="mt-2 w-full rounded-lg border border-gray-200 bg-transparent p-3 dark:border-gray-700"
+					/></label
+				>
+			</div>
+			<p class="text-xs leading-5 text-gray-500">
+				512×512 · 步数越高耗时越长，可能改善声音效果。以本机样片估算，本次约 {Math.ceil(
+					((previewSeconds / (107 / 24)) * (stepSeconds[steps] ?? 430)) / 60
+				)} 分钟，实际随素材变化。{engine?.long_video_enabled
+					? '支持分段生成完整版。'
+					: '目前支持短片；长片分段待启用。'}
+			</p>
+		{:else}
+			<p class="text-xs leading-5 text-gray-500">
+				预览取开头最多15秒（{engine?.preview_resolution ??
+					'720p'}），完整版使用完整配音（{engine?.final_resolution ??
+					'1080p'}）。{engine?.duration_note ?? ''}
+			</p>
+		{/if}
+
 		<label
 			class="flex items-start gap-2 rounded-lg border border-gray-200 p-3 text-sm leading-6 dark:border-gray-700"
 			><input type="checkbox" bind:checked={consent} class="mt-1" /><span
@@ -202,7 +257,9 @@
 			class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 p-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-white dark:text-black"
 			>{#if busy}<WorkingIndicator />{/if}{busy ? '正在提交…' : '生成短预览'}</button
 		>
-		{#if $user?.role === 'admin'}<VideoProviderSettings onchange={refresh} />{/if}
+		{#if $user?.role === 'admin'}<LocalVideoSettings onchange={refresh} /><VideoProviderSettings
+				onchange={refresh}
+			/>{/if}
 	</section>
 	<section class="min-w-0 space-y-4">
 		<div class="flex items-center justify-between">

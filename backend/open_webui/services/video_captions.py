@@ -105,7 +105,9 @@ async def ensure_automatic(job, retry=False):
                 )
             return item
         source = job.get('source_text', '')
-        if not source:
+        if job.get('provider_id') == 'local_h3':
+            source = ''
+        if not source and job.get('provider_id') != 'local_h3':
             audio = await audio_records.get(job.get('audio_job_id'), job['user_id'])
             source = (audio or {}).get('text', '')
         return await records.create(
@@ -207,8 +209,8 @@ async def generate(id, user, form):
         pending = await records.listing(user.id, kind='caption', statuses=ACTIVE, limit=4)
         if len(pending) >= 4:
             raise HTTPException(429, '字幕排队任务过多，请稍后再试')
-        source = job.get('source_text', '')
-        if not source:
+        source = '' if job.get('provider_id') == 'local_h3' else job.get('source_text', '')
+        if not source and job.get('provider_id') != 'local_h3':
             audio = await audio_records.get(job.get('audio_job_id'), user.id)
             source = (audio or {}).get('text', '')
         data = dict(

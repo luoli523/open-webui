@@ -53,12 +53,25 @@
 	}
 
 	let externalId = '';
-	$: working = ['queued', 'preparing', 'submitting', 'processing', 'downloading'].includes(
-		job.status
-	);
+	const progressStages: Record<string, string> = {
+		waiting_gpu: '等待 GPU',
+		'Encoding prompt': '编码素材',
+		Generating: '生成声画',
+		'Decoding video': '解码视频',
+		'Decoding audio': '解码音频',
+		muxing: '合并视频'
+	};
+	$: working = [
+		'queued',
+		'preparing',
+		'submitting',
+		'processing',
+		'downloading',
+		'cancelling'
+	].includes(job.status);
 	$: captionWorking =
 		job.status === 'completed' && ['queued', 'running'].includes(job.caption_status ?? '');
-	$: captionPending = job.auto_captions && !job.caption_ready;
+	$: captionPending = job.status === 'completed' && job.auto_captions && !job.caption_ready;
 	$: chosenDelivery = job.caption_ready || job.auto_captions ? captionDelivery : delivery;
 	const labels: Record<string, string> = {
 		queued: '等待生成',
@@ -68,6 +81,8 @@
 		downloading: '下载并检查视频',
 		completed: '已完成',
 		failed: '处理失败',
+		cancelled: '已取消',
+		cancelling: '正在取消',
 		submission_unknown: '提交结果待核实'
 	};
 	async function action(path: string, data: unknown = {}) {
@@ -105,7 +120,7 @@
 	async function final() {
 		if (
 			!confirm(
-				`确认「${job.title}」预览中的人物、声音和口型效果？\n将使用同一素材生成 ${Math.ceil(job.full_duration)} 秒完整版，HeyGen 会再次计费。`
+				`确认「${job.title}」预览中的人物、声音和口型效果？\n将使用同一素材生成 ${Math.ceil(job.full_duration)} 秒完整版，${job.provider_id === 'local_h3' ? '将在本机分段生成。' : 'HeyGen 会再次计费。'}`
 			)
 		)
 			return;
@@ -150,7 +165,7 @@
 		aria-label="删除视频"
 		title="删除"
 		disabled={busy ||
-			!['completed', 'failed'].includes(job.status) ||
+			!['completed', 'failed', 'cancelled'].includes(job.status) ||
 			['sending', 'unknown'].includes(delivery?.status ?? '') ||
 			['sending', 'unknown'].includes(captionDelivery?.status ?? '')}
 		class="absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-red-950/30 dark:hover:text-red-400"
@@ -226,7 +241,8 @@
 			{#if job.credit}<p class="text-xs text-gray-500">发布署名：{job.credit}</p>{/if}
 			<p class="mt-1 text-xs text-gray-500">
 				{job.stage === 'preview' ? '短预览' : '完整版'} · {job.portrait_name} · {job.resolution} · {job.aspect_ratio}
-				· {Math.ceil(job.duration)} 秒
+				· {Math.ceil(job.duration)} 秒{#if job.steps}
+					· {job.steps} 步{/if}
 				<span class="block mt-1 text-[11px] text-gray-400"
 					>{new Date(job.created_at * 1000).toLocaleString()}</span
 				>
@@ -244,6 +260,22 @@
 						: (labels[job.status] ?? job.status)}</span
 		>
 	</div>
+	{#if job.provider_id === 'local_h3' && working}
+		<div class="space-y-2 text-xs text-gray-500" role="status">
+			{#if job.progress}<p>
+					{progressStages[job.progress.stage ?? ''] ?? '准备生成'} · 片段 {job.progress.segment ??
+						1}/{job.progress.segments ?? 1} · 步数 {job.progress.step ?? 0}/{job.steps}
+				</p>{/if}
+			{#if job.estimated_seconds}<p>
+					预计生成约 {Math.ceil(job.estimated_seconds / 60)} 分钟（不含排队）
+				</p>{/if}
+			<button
+				disabled={busy || job.status === 'cancelling'}
+				class="underline disabled:opacity-40"
+				on:click={() => action(`/jobs/${job.id}/cancel`)}>取消生成</button
+			>
+		</div>
+	{/if}
 	{#if job.error}<p role="alert" class="break-words text-sm text-red-600 dark:text-red-400">
 			{job.error}
 		</p>{/if}
@@ -264,11 +296,15 @@
 				compact
 			/>{/if}
 		<div class="flex flex-wrap gap-x-3 gap-y-1 text-xs">
-			{#if job.stage === 'preview'}<button
+			{#if job.stage === 'preview' && job.can_generate_final !== false}<button
 					disabled={busy || hasFinal || captionPending}
 					on:click={final}
 					class="font-medium underline disabled:opacity-40"
-					>{hasFinal ? '已创建完整版' : '确认预览，付费生成完整版'}</button
+					>{hasFinal
+						? '已创建完整版'
+						: job.provider_id === 'local_h3'
+							? '确认预览，生成完整版'
+							: '确认预览，付费生成完整版'}</button
 				>{/if}
 			<button
 				disabled={busy || captionPending}
@@ -311,11 +347,13 @@
 				{refresh}
 				onclose={() => (captionsOpen = false)}
 			/>{/if}
-	{:else if job.status === 'failed'}
+	{:else if ['failed', 'cancelled'].includes(job.status)}
 		<button disabled={busy} class="text-sm underline" on:click={retry}
-			>{job.retry_requires_payment
-				? '确认费用后重新生成'
-				: '继续查询 / 重试下载（不重新生成）'}</button
+			>{job.provider_id === 'local_h3'
+				? '重试 / 继续未完成片段'
+				: job.retry_requires_payment
+					? '确认费用后重新生成'
+					: '继续查询 / 重试下载（不重新生成）'}</button
 		>
 	{:else if job.status === 'submission_unknown'}
 		<div class="space-y-3 rounded-lg bg-amber-50 p-3 text-sm dark:bg-amber-950/30">

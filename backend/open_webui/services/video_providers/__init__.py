@@ -1,8 +1,9 @@
 """Explicit registry: model runtimes belong in external services, not WebUI."""
 
 from .heygen import HeyGen
+from .local_h3 import LocalH3
 
-PROVIDERS = {'heygen': HeyGen}
+PROVIDERS = {'heygen': HeyGen, 'local_h3': LocalH3}
 
 
 def provider_for(name, config):

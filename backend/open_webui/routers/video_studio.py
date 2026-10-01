@@ -19,11 +19,22 @@ send_tasks = set()
 
 @router.get('/providers')
 async def providers(user=Depends(get_verified_user)):
-    config = await service.settings()
-    return [
-        dict(**p.capabilities, configured=bool(config.get('config_version')), enabled=bool(config.get('enabled')))
-        for p in PROVIDERS.values()
-    ]
+    result = []
+    for name, provider in PROVIDERS.items():
+        config = await service.settings(name)
+        caps = dict(provider.capabilities)
+        enabled = bool(config.get('enabled'))
+        configured = bool(config.get('config_version'))
+        if name == 'local_h3' and configured:
+            try:
+                remote = await provider_for(name, await service.configuration(config['config_version'])).request('GET', '/v1/video/capabilities')
+                for key in ('supported_steps','default_steps','long_video_enabled'):
+                    caps[key] = remote.get(key, caps.get(key))
+                enabled = enabled and bool(remote.get('ready'))
+            except ProviderError:
+                enabled = False
+        result.append(dict(**caps, configured=configured, enabled=enabled))
+    return result
 
 
 @router.get('/config')
@@ -41,6 +52,24 @@ class Settings(BaseModel):
 async def save_config(form: Settings, user=Depends(get_admin_user)):
     await service.save_settings(form.api_key, form.enabled)
     return await config(user)
+
+
+class LocalSettings(BaseModel):
+    base_url: str = Field(default='http://127.0.0.1:8092', max_length=200)
+    enabled: bool
+
+
+@router.get('/config/local-h3')
+async def local_config(user=Depends(get_admin_user)):
+    data = await service.settings('local_h3')
+    return dict(base_url=data.get('base_url', 'http://127.0.0.1:8092'),
+                configured=bool(data.get('config_version')), enabled=bool(data.get('enabled')))
+
+
+@router.put('/config/local-h3')
+async def save_local_config(form: LocalSettings, user=Depends(get_admin_user)):
+    await service.save_local_settings(form.base_url, form.enabled)
+    return await local_config(user)
 
 
 @router.get('/portraits')
@@ -114,6 +143,9 @@ class Preview(BaseModel):
     audio_job_id: str = Field(max_length=100)
     provider_id: str = Field(default='heygen', max_length=60)
     aspect_ratio: str = Field(default='16:9', max_length=10)
+    steps: Literal[8, 12, 20] = 8
+    preview_start: float = Field(default=0, ge=0, le=298, allow_inf_nan=False)
+    preview_seconds: float = Field(default=5, ge=2, le=15, allow_inf_nan=False)
     consent: Literal[True]
 
 
@@ -145,6 +177,11 @@ async def jobs(user=Depends(get_verified_user)):
 @router.delete('/jobs/{id}')
 async def delete_job(id: str, user=Depends(get_verified_user)):
     return await service.delete_record(id, user)
+
+
+@router.post('/jobs/{id}/cancel')
+async def cancel_job(id: str, user=Depends(get_verified_user)):
+    return service.public(await service.cancel_local(await service.owned(id, user)))
 
 
 class Rename(BaseModel):
