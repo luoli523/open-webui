@@ -3,7 +3,7 @@
 	import { toast } from 'svelte-sonner';
 	import type { Voice } from '$lib/apis/audio-studio';
 	import { videoStudio, type Portrait } from '$lib/apis/video-studio';
-	import StudioMedia from './StudioMedia.svelte';
+	import PortraitThumbnail from './PortraitThumbnail.svelte';
 	import VoicePreview from './VoicePreview.svelte';
 	import FilePicker from './FilePicker.svelte';
 	export let voices: Voice[] = [];
@@ -154,20 +154,23 @@
 		{#if error}<p role="alert" class="text-sm text-red-600">{error}</p>{/if}
 		{#if loading}<p role="status" class="text-sm text-gray-500">正在加载人物…</p>{/if}
 		{#each portraits as item (item.id)}
-			<article class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-gray-800">
-				<StudioMedia path={`/portraits/${item.id}/image`} version={item.version} alt={item.name} />
-				<h3 class="break-words font-medium">{item.name}</h3>
-				<p class="text-xs text-gray-500">
-					{item.width} × {item.height} · 默认音色：{voices.find(
-						(v) => v.id === item.default_voice_id
-					)?.name ?? '未设置或音色已不可用'}
-				</p>
-				<div class="flex flex-wrap gap-4 text-sm">
-					<button class="underline" on:click={() => onuse(item)}>使用此人物</button><button
-						class="underline"
-						disabled={busy}
-						on:click={() => edit(item)}>编辑</button
-					><button class="text-red-600" disabled={busy} on:click={() => remove(item)}>删除</button>
+			<article class="flex gap-3 rounded-xl border border-gray-200 p-3 dark:border-gray-800">
+				{#key item.version}<PortraitThumbnail id={item.id} name={item.name} />{/key}
+				<div class="min-w-0 flex-1 space-y-1">
+					<h3 class="break-words font-medium">{item.name}</h3>
+					<p class="text-xs text-gray-500">
+						{item.width} × {item.height} · 默认音色：{voices.find(
+							(v) => v.id === item.default_voice_id
+						)?.name ?? '未设置或音色已不可用'}
+					</p>
+					<div class="flex flex-wrap gap-4 text-sm">
+						<button class="underline" on:click={() => onuse(item)}>使用此人物</button><button
+							class="underline"
+							disabled={busy}
+							on:click={() => edit(item)}>编辑</button
+						><button class="text-red-600" disabled={busy} on:click={() => remove(item)}>删除</button
+						>
+					</div>
 				</div>
 			</article>
 		{:else}{#if !loading && !error}<p class="py-12 text-center text-sm text-gray-500">
