@@ -103,3 +103,11 @@ class LocalH3(VideoProvider):
             raise
         except Exception:
             raise ProviderError('本地视频读取失败，可重试下载') from None
+
+
+class MacH3(LocalH3):
+    capabilities = dict(LocalH3.capabilities, id='h3_mac', name='本机 H3（Mac）')
+
+
+class CudaH3(LocalH3):
+    capabilities = dict(LocalH3.capabilities, id='h3_4090', name='4090 H3')

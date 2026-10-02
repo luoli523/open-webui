@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isH3Provider } from '$lib/apis/video-studio';
 	import { onMount } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { user } from '$lib/stores';
@@ -30,7 +31,7 @@
 	let audio = initialAudio;
 	let narrationMode = 'existing';
 	let textAudio = '';
-	let provider = 'local_h3';
+	let provider = 'h3_4090';
 	let steps = 12;
 	const stepSeconds: Record<number, number> = { 8: 430, 12: 626, 20: 1003 };
 	let previewStart = 0;
@@ -179,7 +180,7 @@
 			></label
 		>
 
-		{#if provider === 'local_h3'}
+		{#if isH3Provider(provider)}
 			<label class="block text-sm"
 				>生成步数<select
 					bind:value={steps}
@@ -213,9 +214,9 @@
 				>
 			</div>
 			<p class="text-xs leading-5 text-gray-500">
-				512×512 · 步数越高耗时越长，可能改善声音效果。以本机样片估算，本次约 {Math.ceil(
-					((previewSeconds / (107 / 24)) * (stepSeconds[steps] ?? 430)) / 60
-				)} 分钟，实际随素材变化。{engine?.long_video_enabled
+				512×512 · 步数越高耗时越长，可能改善声音效果。
+                {#if provider === 'h3_mac'}以本机样片估算，本次约 {Math.ceil(((previewSeconds / (107 / 24)) * (stepSeconds[steps] ?? 626)) / 60)} 分钟，实际随素材变化。
+                {:else}在 4090 上生成；12 步约 4.5 秒样片曾耗时 86 秒，实际随素材变化。{/if}{engine?.long_video_enabled
 					? '支持分段生成完整版。'
 					: '目前支持短片；长片分段待启用。'}
 			</p>
@@ -244,7 +245,7 @@
 			class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 p-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-white dark:text-black"
 			>{#if busy}<WorkingIndicator />{/if}{busy ? '正在提交…' : '生成短预览'}</button
 		>
-		{#if $user?.role === 'admin'}<LocalVideoSettings onchange={refresh} /><VideoProviderSettings
+		{#if $user?.role === 'admin'}<LocalVideoSettings providerId="h3_mac" name="本机 H3（Mac）" onchange={refresh} /><LocalVideoSettings providerId="h3_4090" name="4090 H3" onchange={refresh} /><VideoProviderSettings
 				onchange={refresh}
 			/>{/if}
 	</section>

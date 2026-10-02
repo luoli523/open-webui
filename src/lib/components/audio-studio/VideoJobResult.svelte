@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isH3Provider, videoEngineName } from '$lib/apis/video-studio';
 	import { tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -54,6 +55,9 @@
 
 	let externalId = '';
 	const progressStages: Record<string, string> = {
+        loading: '加载模型',
+        sampling: '采样生成',
+        decoding: '解码音视频',
 		waiting_gpu: '等待 GPU',
 		'Encoding prompt': '编码素材',
 		Generating: '生成声画',
@@ -120,7 +124,7 @@
 	async function final() {
 		if (
 			!confirm(
-				`确认「${job.title}」预览中的人物、声音和口型效果？\n将使用同一素材生成 ${Math.ceil(job.full_duration)} 秒完整版，${job.provider_id === 'local_h3' ? '将在本机分段生成。' : 'HeyGen 会再次计费。'}`
+				`确认「${job.title}」预览中的人物、声音和口型效果？\n将使用同一素材生成 ${Math.ceil(job.full_duration)} 秒完整版，${isH3Provider(job.provider_id) ? '将由所选 H3 引擎分段生成。' : 'HeyGen 会再次计费。'}`
 			)
 		)
 			return;
@@ -240,7 +244,7 @@
 			{/if}
 			{#if job.credit}<p class="text-xs text-gray-500">发布署名：{job.credit}</p>{/if}
 			<p class="mt-1 text-xs text-gray-500">
-				{job.stage === 'preview' ? '短预览' : '完整版'} · {job.portrait_name} · {job.resolution} · {job.aspect_ratio}
+				{videoEngineName(job.provider_id)} · {job.stage === 'preview' ? '短预览' : '完整版'} · {job.portrait_name} · {job.resolution} · {job.aspect_ratio}
 				· {Math.ceil(job.duration)} 秒{#if job.steps}
 					· {job.steps} 步{/if}
 				<span class="block mt-1 text-[11px] text-gray-400"
@@ -260,7 +264,7 @@
 						: (labels[job.status] ?? job.status)}</span
 		>
 	</div>
-	{#if job.provider_id === 'local_h3' && working}
+	{#if isH3Provider(job.provider_id) && working}
 		<div class="space-y-2 text-xs text-gray-500" role="status">
 			{#if job.progress}<p>
 					{progressStages[job.progress.stage ?? ''] ?? '准备生成'} · 片段 {job.progress.segment ??
@@ -302,7 +306,7 @@
 					class="font-medium underline disabled:opacity-40"
 					>{hasFinal
 						? '已创建完整版'
-						: job.provider_id === 'local_h3'
+						: isH3Provider(job.provider_id)
 							? '确认预览，生成完整版'
 							: '确认预览，付费生成完整版'}</button
 				>{/if}
@@ -349,7 +353,7 @@
 			/>{/if}
 	{:else if ['failed', 'cancelled'].includes(job.status)}
 		<button disabled={busy} class="text-sm underline" on:click={retry}
-			>{job.provider_id === 'local_h3'
+			>{isH3Provider(job.provider_id)
 				? '重试 / 继续未完成片段'
 				: job.retry_requires_payment
 					? '确认费用后重新生成'

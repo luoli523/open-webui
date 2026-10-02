@@ -131,3 +131,7 @@ export async function downloadCaption(job: VideoJob, format: 'srt' | 'vtt' | 'as
 	link.click();
 	setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
+
+export const isH3Provider = (id: string) => ['local_h3', 'h3_mac', 'h3_4090'].includes(id);
+const engineNames: Record<string, string> = { h3_mac: '本机 H3（Mac）', h3_4090: '4090 H3', local_h3: 'H3（历史任务）', heygen: 'HeyGen' };
+export const videoEngineName = (id: string) => engineNames[id] ?? id;

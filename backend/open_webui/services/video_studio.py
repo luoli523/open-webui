@@ -8,6 +8,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from open_webui.services.video_providers import H3_PROVIDERS
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
@@ -59,7 +60,7 @@ PUBLIC_FIELDS = (
 def public(item):
     result = {k: item[k] for k in PUBLIC_FIELDS if k in item}
     if item['kind'] == 'job':
-        result['retry_requires_payment'] = item.get('provider_id') != 'local_h3' and (not item.get('external_id') or bool(item.get('remote_failed')))
+        result['retry_requires_payment'] = item.get('provider_id') not in H3_PROVIDERS and (not item.get('external_id') or bool(item.get('remote_failed')))
     return result
 
 
@@ -160,7 +161,7 @@ async def delete_record(id, user):
 
 
 async def settings(provider='heygen'):
-    key = 'video.studio.local_h3' if provider == 'local_h3' else 'video.studio.settings'
+    key = 'video.studio.' + provider if provider in H3_PROVIDERS else 'video.studio.settings'
     return await Config.get(key, {}) or {}
 
 
@@ -186,7 +187,9 @@ async def save_settings(api_key, enabled):
     )
 
 
-async def save_local_settings(url, enabled):
+async def save_local_settings(url, enabled, provider_id='local_h3'):
+    if provider_id not in H3_PROVIDERS:
+        raise HTTPException(422, '未知 H3 引擎')
     from open_webui.services.video_providers.local_h3 import base_url
     try:
         url = base_url(url)
@@ -195,18 +198,18 @@ async def save_local_settings(url, enabled):
     config = {'base_url': url}
     if enabled:
         try:
-            caps = await provider_for('local_h3', config).request('GET', '/v1/video/capabilities')
+            caps = await provider_for(provider_id, config).request('GET', '/v1/video/capabilities')
         except ProviderError as exc:
             raise HTTPException(503, str(exc)) from None
         if not caps.get('ready'):
             raise HTTPException(409, '本地 H3 模型尚未准备好')
     version = uuid.uuid4().hex
     await Config.upsert({'video.studio.credentials.'+version: config,
-                         'video.studio.local_h3': dict(enabled=enabled, config_version=version, base_url=url)})
+                         'video.studio.' + provider_id: dict(enabled=enabled, config_version=version, base_url=url)})
 
 
 async def cancel_local(job):
-    if job['provider_id'] != 'local_h3':
+    if job['provider_id'] not in H3_PROVIDERS:
         raise HTTPException(409, '该引擎不支持取消')
     if job['status'] in ('completed', 'failed', 'cancelled') and not job.get('submission_pending'):
         return job
@@ -216,7 +219,7 @@ async def cancel_local(job):
         raise HTTPException(409, '任务状态已变化，请刷新后重试')
     if updated.get('external_id'):
         try:
-            await provider_for('local_h3', await configuration(job['config_version'])).cancel(job['external_id'])
+            await provider_for(job['provider_id'], await configuration(job['config_version'])).cancel(job['external_id'])
         except ProviderError as exc:
             # The worker will retry cancellation with the durable external ID.
             await records.change(updated, error=str(exc))
@@ -239,9 +242,9 @@ async def _create_preview(user, form):
     if form.provider_id not in PROVIDERS:
         raise HTTPException(400, '视频引擎尚未安装')
     caps = dict(PROVIDERS[form.provider_id].capabilities)
-    if form.provider_id == 'local_h3':
+    if form.provider_id in H3_PROVIDERS:
         try:
-            caps.update(await provider_for('local_h3', await configuration(config['config_version'])).request('GET', '/v1/video/capabilities'))
+            caps.update(await provider_for(form.provider_id, await configuration(config['config_version'])).request('GET', '/v1/video/capabilities'))
         except ProviderError as exc:
             raise HTTPException(503, str(exc)) from None
         if not caps.get('ready') or form.steps not in caps.get('supported_steps', []):
@@ -261,9 +264,9 @@ async def _create_preview(user, form):
         duration, streams = await media.probe(source)
     except (ValueError, FileNotFoundError):
         raise HTTPException(400, '无法读取配音，请检查文件及 FFmpeg') from None
-    if duration > (300 if form.provider_id == 'local_h3' else caps['max_duration_seconds']) or source.stat().st_size > caps['max_asset_bytes']:
+    if duration > (300 if form.provider_id in H3_PROVIDERS else caps['max_duration_seconds']) or source.stat().st_size > caps['max_asset_bytes']:
         raise HTTPException(400, '首版视频支持不超过 5 分钟、32 MB 的播报')
-    if form.provider_id == 'local_h3' and duration - form.preview_start < 2:
+    if form.provider_id in H3_PROVIDERS and duration - form.preview_start < 2:
         raise HTTPException(422, '预览起点后需至少保留 2 秒音频')
     digest = await asyncio.to_thread(media.digest, source)
     inputs = dict(
@@ -278,7 +281,7 @@ async def _create_preview(user, form):
         preview_resolution=caps['preview_resolution'],
         final_resolution=caps['final_resolution'],
     )
-    if form.provider_id == 'local_h3':
+    if form.provider_id in H3_PROVIDERS:
         inputs.update(steps=form.steps, seed=42, preview_start=form.preview_start,
                       preview_seconds=min(form.preview_seconds, duration-form.preview_start))
     stamp = fingerprint(inputs)
@@ -306,8 +309,8 @@ async def _create_preview(user, form):
         audio_asset=snapshot.name,
         full_duration=duration,
         duration=inputs.get('preview_seconds', min(15, duration)),
-        can_generate_final=form.provider_id != 'local_h3' or bool(caps.get('long_video_enabled')) or duration <= 15,
-        estimated_seconds=(inputs.get('preview_seconds', min(15, duration)) / (107/24) * {8:430,12:626,20:1003}[form.steps]) if form.provider_id == 'local_h3' else None,
+        can_generate_final=form.provider_id not in H3_PROVIDERS or bool(caps.get('long_video_enabled')) or duration <= 15,
+        estimated_seconds=(inputs.get('preview_seconds', min(15, duration)) / (107/24) * {8:430,12:626,20:1003}[form.steps]) if form.provider_id == 'h3_mac' else None,
         stage='preview',
         resolution=caps['preview_resolution'],
         fingerprint=stamp,
@@ -333,7 +336,7 @@ async def _create_final(user, preview, expected_fingerprint):
     if expected_fingerprint != preview['fingerprint']:
         raise HTTPException(409, '预览内容已变化，请重新确认')
     config = await settings(preview['provider_id'])
-    if preview['provider_id'] == 'local_h3' and not preview.get('can_generate_final'):
+    if preview['provider_id'] in H3_PROVIDERS and not preview.get('can_generate_final'):
         raise HTTPException(409, '长片分段尚未启用，请先使用短片预览')
     if not config.get('enabled'):
         raise HTTPException(409, '管理员已暂停新的视频生成')
@@ -361,7 +364,7 @@ async def _create_final(user, preview, expected_fingerprint):
         'fingerprint',
     )
     data = {k: preview[k] for k in fields}
-    if preview['provider_id'] == 'local_h3':
+    if preview['provider_id'] in H3_PROVIDERS:
         data.update(steps=preview['steps'], seed=preview.get('seed',42), can_generate_final=True)
     data.update(
         credit=preview.get('credit'),
@@ -384,11 +387,11 @@ async def _create_final(user, preview, expected_fingerprint):
 
 
 async def retry(job, paid=False):
-    if job['provider_id'] == 'local_h3' and job['status'] in ('failed','cancelled'):
-        if not (await settings('local_h3')).get('enabled'):
+    if job['provider_id'] in H3_PROVIDERS and job['status'] in ('failed','cancelled'):
+        if not (await settings(job['provider_id'])).get('enabled'):
             raise HTTPException(409, '本地 H3 已暂停新任务')
         if job.get('external_id'):
-            provider = provider_for('local_h3', await configuration(job['config_version']))
+            provider = provider_for(job['provider_id'], await configuration(job['config_version']))
             result = await provider.poll(job['external_id'])
             if result['state'] in ('failed','cancelled'):
                 await provider.retry(job['external_id'])
@@ -446,7 +449,7 @@ async def execute(job):
             target = full_audio
             if job['stage'] == 'preview':
                 target = media.path(job['id'] + '-preview.mp3')
-                if job['provider_id'] == 'local_h3':
+                if job['provider_id'] in H3_PROVIDERS:
                     duration = await media.local_preview_audio(full_audio, target, job.get('preview_start',0), job.get('preview_seconds',5))
                 else:
                     duration = await media.preview_audio(full_audio, target)
@@ -459,12 +462,12 @@ async def execute(job):
                     job = await records.change(job, assets={**job['assets'], key: external_asset})
                     if not job:
                         return
-            job = await records.change(job, 'submitting', submitted_at=int(time.time()), submission_pending=job['provider_id']=='local_h3')
+            job = await records.change(job, 'submitting', submitted_at=int(time.time()), submission_pending=job['provider_id'] in H3_PROVIDERS)
             if not job:
                 return
             external_id = await provider.submit(job, job['assets'])
             updated = await records.change(job, 'processing', external_id=external_id, submission_pending=False, next_poll=int(time.time()) + 10)
-            if not updated and job['provider_id'] == 'local_h3':
+            if not updated and job['provider_id'] in H3_PROVIDERS:
                 current = await records.get(job['id'])
                 if current and current['status'] in ('cancelled','cancelling'):
                     await records.change(current, 'cancelling', external_id=external_id, submission_pending=False)
@@ -476,7 +479,7 @@ async def execute(job):
                 await records.change(job, 'cancelled', error=None, submission_pending=False)
             elif result['state'] == 'failed':
                 await records.change(
-                    job, 'failed', remote_failed=True, error=result.get('error') or ('本地任务中断或失败，可重试未完成片段' if job['provider_id']=='local_h3' else '引擎报告生成失败，请到引擎后台核对原因和扣费')
+                    job, 'failed', remote_failed=True, error=result.get('error') or ('本地任务中断或失败，可重试未完成片段' if job['provider_id'] in H3_PROVIDERS else '引擎报告生成失败，请到引擎后台核对原因和扣费')
                 )
             elif result['state'] == 'completed':
                 job = await records.change(job, 'downloading')
@@ -487,7 +490,7 @@ async def execute(job):
                 try:
                     await provider.fetch_result(result, temp)
                     os.chmod(temp, 0o600)
-                    expected_duration = result.get('duration') if job['provider_id'] == 'local_h3' else job['duration']
+                    expected_duration = result.get('duration') if job['provider_id'] in H3_PROVIDERS else job['duration']
                     await media.validate_video(temp, expected_duration or job['duration'])
                     video_hash = await asyncio.to_thread(media.digest, temp)
                     os.replace(temp, target)
@@ -495,7 +498,7 @@ async def execute(job):
                 finally:
                     temp.unlink(missing_ok=True)
             else:
-                await records.change(job, next_poll=int(time.time()) + (3 if job['provider_id']=='local_h3' else 15), failures=0, error=None, progress=result.get('progress'))
+                await records.change(job, next_poll=int(time.time()) + (3 if job['provider_id'] in H3_PROVIDERS else 15), failures=0, error=None, progress=result.get('progress'))
     except asyncio.CancelledError:
         # Startup recovery resolves the saved stage; never silently resubmit an uncertain POST.
         raise
@@ -508,7 +511,7 @@ async def execute(job):
         )
         if current['status'] in ('cancelled', 'cancelling'):
             return
-        if current['status'] == 'submitting' and current['provider_id'] == 'local_h3':
+        if current['status'] == 'submitting' and current['provider_id'] in H3_PROVIDERS:
             uncertain = isinstance(exc, SubmissionUnknown) or not isinstance(exc, ProviderError)
             await records.change(current, 'queued' if uncertain else 'failed',
                                  submission_pending=uncertain, error=message, next_poll=int(time.time())+5)
@@ -546,7 +549,7 @@ async def worker():
             state = {'preparing': 'queued', 'submitting': 'submission_unknown', 'downloading': 'processing'}[
                 item['status']
             ]
-            if item.get('provider_id') == 'local_h3' and state == 'submission_unknown':
+            if item.get('provider_id') in H3_PROVIDERS and state == 'submission_unknown':
                 state = 'queued'  # replay the same durable idempotency key
             await records.change(
                 item,

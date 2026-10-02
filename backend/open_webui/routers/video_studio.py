@@ -2,6 +2,7 @@
 
 import asyncio
 from typing import Literal
+from open_webui.services.video_providers import H3_PROVIDERS
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -21,11 +22,13 @@ send_tasks = set()
 async def providers(user=Depends(get_verified_user)):
     result = []
     for name, provider in PROVIDERS.items():
+        if name == 'local_h3':
+            continue  # Legacy jobs retain their original provider and config version.
         config = await service.settings(name)
         caps = dict(provider.capabilities)
         enabled = bool(config.get('enabled'))
         configured = bool(config.get('config_version'))
-        if name == 'local_h3' and configured:
+        if name in H3_PROVIDERS and configured:
             try:
                 remote = await provider_for(name, await service.configuration(config['config_version'])).request('GET', '/v1/video/capabilities')
                 for key in ('supported_steps','default_steps','long_video_enabled'):
@@ -70,6 +73,21 @@ async def local_config(user=Depends(get_admin_user)):
 async def save_local_config(form: LocalSettings, user=Depends(get_admin_user)):
     await service.save_local_settings(form.base_url, form.enabled)
     return await local_config(user)
+
+
+@router.get('/config/h3/{provider_id}')
+async def h3_config(provider_id: Literal['h3_mac', 'h3_4090'], user=Depends(get_admin_user)):
+    data = await service.settings(provider_id)
+    default = 'http://127.0.0.1:8092' if provider_id == 'h3_mac' else 'http://127.0.0.1:28092'
+    return dict(base_url=data.get('base_url', default), configured=bool(data.get('config_version')),
+                enabled=bool(data.get('enabled')))
+
+
+@router.put('/config/h3/{provider_id}')
+async def save_h3_config(provider_id: Literal['h3_mac', 'h3_4090'], form: LocalSettings,
+                         user=Depends(get_admin_user)):
+    await service.save_local_settings(form.base_url, form.enabled, provider_id)
+    return await h3_config(provider_id, user)
 
 
 @router.get('/portraits')
