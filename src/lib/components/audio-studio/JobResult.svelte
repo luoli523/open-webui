@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, tick } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import WorkingIndicator from './WorkingIndicator.svelte';
 	import { studio, post, type Job, type Delivery } from '$lib/apis/audio-studio';
@@ -9,6 +9,11 @@
 	export let refresh: () => Promise<void>;
 	export let onvideo: (job: Job) => void = () => {};
 	let url = '';
+	let player: HTMLAudioElement;
+	let paused = true;
+	let currentTime = 0;
+	let duration = 0;
+	const instance = Symbol('job-audio');
 	let busy = false;
 	let sending = false;
 	let disposed = false;
@@ -71,6 +76,25 @@
 			busy = false;
 		}
 	}
+	function announce() {
+		window.dispatchEvent(new CustomEvent('studio-voice-preview', { detail: instance }));
+	}
+	function clock(seconds: number) {
+		const s = Math.floor(seconds || 0);
+		return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+	}
+	async function toggle() {
+		if (url && !paused) return player?.pause();
+		if (!url) await audio();
+		await tick();
+		if (!url || disposed) return;
+		announce();
+		try {
+			await player?.play();
+		} catch {
+			/* Browser may require another click to play. */
+		}
+	}
 	async function send() {
 		sending = true;
 		try {
@@ -129,6 +153,13 @@
 		}
 	}
 
+	onMount(() => {
+		const stopOther = (event: Event) => {
+			if ((event as CustomEvent).detail !== instance) player?.pause();
+		};
+		window.addEventListener('studio-voice-preview', stopOther);
+		return () => window.removeEventListener('studio-voice-preview', stopOther);
+	});
 	onDestroy(() => {
 		disposed = true;
 		if (url) URL.revokeObjectURL(url);
@@ -158,60 +189,82 @@
 		>
 	</button>
 	<div class="!mt-0 flex items-start justify-between gap-3 pr-9">
-		<div class="min-w-0">
-			{#if editingTitle}
-				<form class="flex flex-wrap items-center gap-2" on:submit|preventDefault={saveTitle}>
-					<input
-						bind:this={titleInput}
-						bind:value={draftTitle}
-						aria-label="播报名称"
-						maxlength="100"
-						required
-						disabled={busy || sending}
-						on:keydown={(event) => {
-							if (event.key === 'Escape' && !busy) editingTitle = false;
-						}}
-						class="min-w-0 w-full rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-sm dark:border-gray-600"
-					/>
-					<button
-						type="submit"
-						disabled={busy || !draftTitle.trim()}
-						class="text-sm underline disabled:opacity-40">保存</button
-					>
-					<button
-						type="button"
-						disabled={busy || sending}
-						on:click={() => (editingTitle = false)}
-						class="text-sm text-gray-500">取消</button
-					>
-				</form>
-			{:else}
-				<div class="flex items-start gap-2">
-					<h3 class="min-w-0 break-words font-medium">{job.title}</h3>
-					{#if job.status === 'completed'}<button
+		<div class="flex min-w-0 items-start gap-2">
+			{#if job.status === 'completed'}<button
+					type="button"
+					disabled={busy && !url}
+					on:click={toggle}
+					title={paused ? '试听' : '暂停'}
+					aria-label={`${paused ? '试听' : '暂停'} ${job.title}`}
+					class="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-gray-900 text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 disabled:opacity-40 dark:bg-white dark:text-black dark:hover:bg-gray-200"
+				>
+					{#if busy && !url}<WorkingIndicator />{:else}<svg
+							aria-hidden="true"
+							class="size-3.5"
+							viewBox="0 0 24 24"
+							fill="currentColor"
+							>{#if paused}<path d="M8 5v14l11-7z" />{:else}<path
+									d="M6 5h4v14H6zM14 5h4v14h-4z"
+								/>{/if}</svg
+						>{/if}
+				</button>{/if}
+			<div class="min-w-0">
+				{#if editingTitle}
+					<form class="flex flex-wrap items-center gap-2" on:submit|preventDefault={saveTitle}>
+						<input
+							bind:this={titleInput}
+							bind:value={draftTitle}
+							aria-label="播报名称"
+							maxlength="100"
+							required
+							disabled={busy || sending}
+							on:keydown={(event) => {
+								if (event.key === 'Escape' && !busy) editingTitle = false;
+							}}
+							class="min-w-0 w-full rounded-lg border border-gray-300 bg-transparent px-2 py-1 text-sm dark:border-gray-600"
+						/>
+						<button
+							type="submit"
+							disabled={busy || !draftTitle.trim()}
+							class="text-sm underline disabled:opacity-40">保存</button
+						>
+						<button
 							type="button"
 							disabled={busy || sending}
-							on:click={editTitle}
-							title="改名"
-							aria-label="修改播报名称"
-							class="inline-flex size-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 focus-visible:outline focus-visible:outline-2 disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+							on:click={() => (editingTitle = false)}
+							class="text-sm text-gray-500">取消</button
 						>
-							<svg
-								aria-hidden="true"
-								class="size-4"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.8"
-								stroke-linecap="round"
-								stroke-linejoin="round"><path d="m16 3 5 5L8 21H3v-5L16 3Zm-2 2 5 5" /></svg
+					</form>
+				{:else}
+					<div class="flex items-start gap-2">
+						<h3 class="min-w-0 break-words font-medium">{job.title}</h3>
+						{#if job.status === 'completed'}<button
+								type="button"
+								disabled={busy || sending}
+								on:click={editTitle}
+								title="改名"
+								aria-label="修改播报名称"
+								class="inline-flex size-6 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700 focus-visible:outline focus-visible:outline-2 disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-gray-200"
 							>
-						</button>{/if}
-				</div>
-			{/if}
-			<p class="mt-1 text-xs text-gray-500">
-				{job.voice_name} · {job.speed}× · {new Date(job.created_at * 1000).toLocaleString()}
-			</p>
+								<svg
+									aria-hidden="true"
+									class="size-4"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.8"
+									stroke-linecap="round"
+									stroke-linejoin="round"><path d="m16 3 5 5L8 21H3v-5L16 3Zm-2 2 5 5" /></svg
+								>
+							</button>{/if}
+					</div>
+				{/if}
+				<p class="mt-1 text-xs text-gray-500">
+					{job.voice_name} · {job.speed}× · {new Date(
+						job.created_at * 1000
+					).toLocaleString()}{#if url}{` · ${clock(currentTime)} / ${clock(duration)}`}{/if}
+				</p>
+			</div>
 		</div>
 		<span class="inline-flex shrink-0 items-center gap-2 text-xs text-gray-500" role="status"
 			>{#if ['queued', 'running'].includes(job.status)}<WorkingIndicator />{/if}{labels[
@@ -224,13 +277,29 @@
 	{#if job.status === 'running'}<p class="text-xs text-gray-500">
 			首次加载模型可能需要稍等，可以离开页面，稍后返回查看。
 		</p>{/if}
-	{#if url}<audio src={url} controls class="w-full"><track kind="captions" /></audio>{/if}
+	{#if url}<audio
+			bind:this={player}
+			bind:paused
+			bind:currentTime
+			bind:duration
+			src={url}
+			on:play={announce}
+			class="hidden"><track kind="captions" /></audio
+		><input
+			type="range"
+			min="0"
+			max={duration || 0}
+			step="0.1"
+			bind:value={currentTime}
+			aria-label={`${job.title} 播放进度`}
+			style={`--progress: ${duration ? (currentTime / duration) * 100 : 0}%`}
+			class="seek block h-1 w-full cursor-pointer appearance-none rounded-full text-gray-900 dark:text-white"
+		/>{/if}
 	{#if job.status === 'completed'}<div class="flex flex-wrap gap-x-4 gap-y-2 text-sm">
 			<button on:click={() => onvideo(job)}>生成数字人视频</button>
-			<button disabled={busy} on:click={() => audio()}>试听</button><button
+			<button disabled={busy} on:click={() => audio(true)}>下载 MP3</button><button
 				disabled={busy}
-				on:click={() => audio(true)}>下载 MP3</button
-			><button disabled={busy} on:click={() => audio(true, 'wav')}>下载 WAV</button
+				on:click={() => audio(true, 'wav')}>下载 WAV</button
 			>{#if canSend}<button
 					disabled={busy ||
 						sending ||
@@ -265,3 +334,27 @@
 			</div>
 		</div>{/if}
 </article>
+
+<style>
+	.seek {
+		background: linear-gradient(
+			to right,
+			currentColor var(--progress),
+			rgb(156 163 175 / 0.35) var(--progress)
+		);
+	}
+	.seek::-webkit-slider-thumb {
+		appearance: none;
+		width: 0.5rem;
+		height: 0.5rem;
+		border-radius: 9999px;
+		background: currentColor;
+	}
+	.seek::-moz-range-thumb {
+		width: 0.5rem;
+		height: 0.5rem;
+		border: 0;
+		border-radius: 9999px;
+		background: currentColor;
+	}
+</style>
