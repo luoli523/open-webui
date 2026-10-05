@@ -33,6 +33,9 @@
     <button class="w-full rounded-lg bg-gray-100 p-8 text-sm dark:bg-gray-800 disabled:opacity-50" disabled={loading} on:click={load}>{loading ? '正在加载图片…' : '查看图片'}</button>
   {/if}
   {#if error}<p role="alert" class="text-sm text-red-600">{error}</p>{/if}
-  <p class="whitespace-pre-wrap break-words text-sm">{item.prompt}</p>
+  <details class="min-w-0 text-sm">
+    <summary class="cursor-pointer text-gray-600 dark:text-gray-400">查看提示词</summary>
+    <p class="mt-2 whitespace-pre-wrap break-words">{item.prompt}</p>
+  </details>
   <p class="text-xs text-gray-500">{item.model.endsWith('turbo6') ? 'Turbo · 6 步' : '基础版 · 40 步'} · {item.width} × {item.height} · {item.seconds.toFixed(1)} 秒 · seed {item.seed}</p>
 </article>
