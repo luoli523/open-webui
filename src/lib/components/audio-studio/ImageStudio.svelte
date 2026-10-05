@@ -9,7 +9,6 @@
   let config = {base_url: 'http://127.0.0.1:28093', enabled: false, configured: false, online: false, busy: false};
   let apiKey = '';
   let results: {id: string; file_id: string; prompt: string; model: string; seed: number; width: number; height: number; seconds: number}[] = [];
-  let newest = '';
   let error = '';
   let loading = true;
   let generating = false;
@@ -55,7 +54,6 @@
       if (seed !== '') data.set('seed', seed);
       if (reference) data.set('image', reference);
       const image = await api('/images', {method: 'POST', body: data});
-      newest = image.id;
       results = [image, ...results].slice(0, 50);
     } catch (e) { error = `${e}`; }
     finally { clearInterval(timer); generating = false; }
@@ -93,7 +91,7 @@
   </form>
   {#if error}<p role="alert" class="rounded-lg border border-red-200 p-3 text-sm text-red-600 dark:text-red-400">{error}</p>{/if}
   <div><h3 class="mb-3 font-medium">最近生成</h3>
-    {#if results.length}<div class="grid gap-4 md:grid-cols-2">{#each results as item (item.id)}<ImageStudioResult {item} preview={item.id === newest} />{/each}</div>
+    {#if results.length}<ul class="divide-y divide-gray-200 dark:divide-gray-800">{#each results as item (item.id)}<ImageStudioResult {item} ondelete={() => results = results.filter((image) => image.id !== item.id)} />{/each}</ul>
     {:else}<p class="text-sm text-gray-500">生成的图片会保存在这里，支持查看和下载原图。</p>{/if}
   </div>
 </section>

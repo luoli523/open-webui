@@ -7,10 +7,15 @@ import re
 from typing import Literal
 
 import aiohttp
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, ValidationError
 from PIL import Image
 
+from open_webui.internal.db import get_async_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from open_webui.models.files import Files
+from open_webui.storage.provider import Storage
+from open_webui.routers.files import delete_file_by_id
 from open_webui.models.config import Config
 from open_webui.models import video_studio as records
 from open_webui.routers.images import upload_image
@@ -111,6 +116,52 @@ def public(row):
 @router.get('/images')
 async def history(user=Depends(get_admin_user)):
     return [public(row) for row in await records.listing(user.id, kind='image', statuses=['completed'], limit=50)]
+
+
+async def owned_image(id, user):
+    row = await records.get(id, user.id)
+    if not row or row['kind'] != 'image':
+        raise HTTPException(404, '图片不存在')
+    return row
+
+
+def thumbnail_bytes(path):
+    with Image.open(Storage.get_file(path)) as picture:
+        picture.thumbnail((160, 160))
+        output = io.BytesIO()
+        picture.convert('RGB').save(output, format='WEBP', quality=80)
+        return output.getvalue()
+
+
+@router.get('/images/{id}/thumbnail')
+async def thumbnail(id: str, user=Depends(get_admin_user)):
+    row = await owned_image(id, user)
+    file = await Files.get_file_by_id(row['file_id'])
+    if not file or file.user_id != user.id:
+        raise HTTPException(404, '图片文件不存在')
+    try:
+        raw = await asyncio.to_thread(thumbnail_bytes, file.path)
+    except (OSError, ValueError):
+        raise HTTPException(404, '无法读取图片文件') from None
+    return Response(raw, media_type='image/webp', headers={'Cache-Control': 'private, no-store'})
+
+
+@router.delete('/images/{id}')
+async def delete_image(request: Request, id: str, user=Depends(get_admin_user),
+                       db: AsyncSession = Depends(get_async_session)):
+    row = await owned_image(id, user)
+    file = await Files.get_file_by_id(row['file_id'], db=db)
+    if file:
+        if file.user_id != user.id:
+            raise HTTPException(404, '图片文件不存在')
+        # Remove bytes first: if storage fails, keep records so deletion can be retried.
+        try:
+            await asyncio.to_thread(Storage.delete_file, file.path)
+        except Exception:
+            raise HTTPException(500, '磁盘图片删除失败，请重试') from None
+        await delete_file_by_id(request, file.id, user=user, db=db)
+    await records.remove_image(id, user.id)
+    return {'deleted': True}
 
 
 @router.post('/images')

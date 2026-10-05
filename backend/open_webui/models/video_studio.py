@@ -3,7 +3,7 @@
 import time
 import uuid
 
-from sqlalchemy import JSON, BigInteger, Column, Integer, String, select, update
+from sqlalchemy import JSON, BigInteger, Column, Integer, String, delete, select, update
 from open_webui.internal.db import Base, get_async_db_context
 
 
@@ -89,3 +89,11 @@ async def media_records():
     async with get_async_db_context() as db:
         rows = await db.execute(select(VideoRecord).where(VideoRecord.kind.in_(['job', 'portrait'])))
         return [serialize(row) for row in rows.scalars()]
+
+
+async def remove_image(id, user_id):
+    async with get_async_db_context() as db:
+        await db.execute(delete(VideoRecord).where(
+            VideoRecord.id == id, VideoRecord.user_id == user_id, VideoRecord.kind == 'image'
+        ))
+        await db.commit()
