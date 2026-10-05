@@ -3,6 +3,7 @@
 	import { toast } from 'svelte-sonner';
 	import { user, showSidebar, WEBUI_NAME } from '$lib/stores';
 	import Sidebar from '$lib/components/icons/Sidebar.svelte';
+	import ImageStudio from '$lib/components/audio-studio/ImageStudio.svelte';
 	import VoiceLibrary from '$lib/components/audio-studio/VoiceLibrary.svelte';
 	import JobResult from '$lib/components/audio-studio/JobResult.svelte';
 	import TelegramSettings from '$lib/components/audio-studio/TelegramSettings.svelte';
@@ -102,7 +103,7 @@
 					class="mt-4 flex flex-wrap gap-x-5 border-b border-gray-200 dark:border-gray-800"
 					aria-label="工作台页面"
 				>
-					{#each [{ id: 'voices', label: '音色库' }, { id: 'portraits', label: '人物库' }, { id: 'generate', label: '生成播报' }, { id: 'video', label: '生成视频' }] as item}<button
+					{#each [{ id: 'voices', label: '音色库' }, { id: 'portraits', label: '人物库' }, { id: 'generate', label: '生成播报' }, { id: 'video', label: '生成视频' }, ...($user?.role === 'admin' ? [{ id: 'images', label: '生成图像' }] : [])] as item}<button
 							class="border-b-2 px-1 py-3 text-sm {tab === item.id
 								? 'border-gray-900 font-medium dark:border-white'
 								: 'border-transparent text-gray-500'}"
@@ -126,6 +127,7 @@
 						tab = 'video';
 					}}
 				/>
+			{:else if tab === 'images' && $user?.role === 'admin'}<ImageStudio />
 			{:else if tab === 'video'}<DigitalHumanStudio
 					audioJobs={jobs}
 					{voices}

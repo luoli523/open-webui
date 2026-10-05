@@ -151,6 +151,7 @@ from open_webui.routers import (
     audio,
     audio_studio,
     video_studio,
+    image_studio,
     auths,
     automations,
     calendar,
@@ -864,6 +865,7 @@ app.include_router(images.router, prefix='/api/v1/images', tags=['images'])
 app.include_router(audio.router, prefix='/api/v1/audio', tags=['audio'])
 app.include_router(audio_studio.router, prefix='/api/v1/audio-studio', tags=['audio-studio'])
 app.include_router(video_studio.router, prefix='/api/v1/video-studio', tags=['video-studio'])
+app.include_router(image_studio.router, prefix='/api/v1/image-studio', tags=['image-studio'])
 app.include_router(retrieval.router, prefix='/api/v1/retrieval', tags=['retrieval'])
 
 app.include_router(configs.router, prefix='/api/v1/configs', tags=['configs'])
