@@ -9,6 +9,10 @@
   let config = {base_url: 'http://127.0.0.1:28093', enabled: false, configured: false, online: false, busy: false};
   let apiKey = '';
   let results: {id: string; file_id: string; prompt: string; model: string; seed: number; width: number; height: number; seconds: number}[] = [];
+  let page = 1, pages = 1, total = 0;
+  let historyLoading = false;
+  let historyRequest = 0;
+  let historyError = '';
   let error = '';
   let loading = true;
   let generating = false;
@@ -24,9 +28,24 @@
     if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '请求失败，请检查输入后重试');
     return data;
   }
+  async function loadHistory(target = page) {
+    const request = ++historyRequest;
+    historyLoading = true; historyError = '';
+    try {
+      const data = await api(`/images/page?page=${target}`);
+      if (request !== historyRequest) return;
+      results = data.items; page = data.page; pages = data.pages; total = data.total;
+    } catch (e) { if (request === historyRequest) historyError = `${e}`; }
+    finally { if (request === historyRequest) historyLoading = false; }
+  }
+  function removed(id: string) {
+    results = results.filter((image) => image.id !== id);
+    total = Math.max(0, total - 1);
+    loadHistory(page);
+  }
   async function refresh() {
     error = '';
-    try { [config, results] = await Promise.all([api('/config'), api('/images')]); }
+    try { [config] = await Promise.all([api('/config'), loadHistory(page)]); }
     catch (e) { error = `${e}`; }
     finally { loading = false; }
   }
@@ -53,8 +72,8 @@
       data.set('prompt', prompt.trim()); data.set('model', model);
       if (seed !== '') data.set('seed', seed);
       if (reference) data.set('image', reference);
-      const image = await api('/images', {method: 'POST', body: data});
-      results = [image, ...results].slice(0, 50);
+      await api('/images', {method: 'POST', body: data});
+      await loadHistory(1);
     } catch (e) { error = `${e}`; }
     finally { clearInterval(timer); generating = false; }
   }
@@ -91,7 +110,18 @@
   </form>
   {#if error}<p role="alert" class="rounded-lg border border-red-200 p-3 text-sm text-red-600 dark:text-red-400">{error}</p>{/if}
   <div><h3 class="mb-3 font-medium">最近生成</h3>
-    {#if results.length}<ul class="divide-y divide-gray-200 dark:divide-gray-800">{#each results as item (item.id)}<ImageStudioResult {item} ondelete={() => results = results.filter((image) => image.id !== item.id)} />{/each}</ul>
-    {:else}<p class="text-sm text-gray-500">生成的图片会保存在这里，支持查看和下载原图。</p>{/if}
+    {#if historyError}<p role="alert" class="mb-3 text-sm text-red-600">{historyError}<button type="button" class="ml-3 underline" on:click={() => loadHistory(page)}>重试</button></p>{/if}
+    {#if historyLoading}<p role="status" class="mb-2 text-sm text-gray-500">正在加载列表…</p>{/if}
+    {#if results.length}<ul class="grid grid-cols-1 items-start gap-x-6 sm:grid-cols-2" aria-busy={historyLoading}>{#each results as item (item.id)}<ImageStudioResult {item} ondelete={() => removed(item.id)} />{/each}</ul>
+    {:else if !historyLoading && !historyError}<p class="text-sm text-gray-500">生成的图片会保存在这里，支持查看和下载原图。</p>{/if}
+    {#if total > 20 || page > 1}
+      <nav aria-label="图片历史分页" class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+        <span class="text-gray-500" aria-live="polite">共 {total} 条 · 第 {page} / {pages} 页 · 每页 20 条</span>
+        <div class="flex gap-2">
+          <button type="button" class="rounded-lg border px-3 py-2 disabled:opacity-40" disabled={historyLoading || page <= 1} on:click={() => loadHistory(page - 1)}>上一页</button>
+          <button type="button" class="rounded-lg border px-3 py-2 disabled:opacity-40" disabled={historyLoading || page >= pages} on:click={() => loadHistory(page + 1)}>下一页</button>
+        </div>
+      </nav>
+    {/if}
   </div>
 </section>

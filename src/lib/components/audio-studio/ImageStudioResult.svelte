@@ -2,10 +2,26 @@
   import { onMount, onDestroy } from 'svelte';
   import { WEBUI_API_BASE_URL } from '$lib/constants';
   import Modal from '$lib/components/common/Modal.svelte';
+  import Tooltip from '$lib/components/common/Tooltip.svelte';
+  import type { Props } from 'tippy.js';
   export let item;
   export let ondelete: () => void;
   let thumb = '', url = '', error = '', thumbError = '', imageError = '';
   let show = false, loading = false, deleting = false;
+  let promptExpanded = false;
+  const promptTooltip: Partial<Props> = {
+    content: item.prompt,
+    maxWidth: 360,
+    onShow(instance) {
+      const content = instance.popper.querySelector<HTMLElement>('.tippy-content');
+      if (content) {
+        content.style.whiteSpace = 'pre-wrap';
+        content.style.overflowWrap = 'anywhere';
+        content.style.maxHeight = '240px';
+        content.style.overflowY = 'auto';
+      }
+    }
+  };
   const controller = new AbortController();
   async function readImage(path: string) {
     const response = await fetch(`${WEBUI_API_BASE_URL}${path}`, {
@@ -52,14 +68,20 @@
   });
 </script>
 
-<li class="py-2">
+<li class="min-w-0 border-b border-gray-200 py-2 dark:border-gray-800">
   <div class="flex items-center justify-between gap-3">
+    <Tooltip content={item.prompt} allowHTML={false} touch={false} className="shrink-0" interactive={true} tippyOptions={promptTooltip}>
     <button type="button" class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-100 text-xs focus-visible:ring-2 focus-visible:ring-blue-500 dark:bg-gray-800" aria-label="查看大图和提示词" on:click={open}>
       {#if thumb}<img src={thumb} alt="生成图片缩略图" class="h-full w-full object-contain" />
       {:else}<span>{thumbError || '加载中…'}</span>{/if}
     </button>
+    </Tooltip>
+    <div class="flex flex-wrap items-center justify-end gap-1">
+    <button type="button" class="rounded-lg px-2 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800" aria-expanded={promptExpanded} aria-controls={`image-prompt-${item.id}`} on:click={() => promptExpanded = !promptExpanded}>{promptExpanded ? '收起 Prompt' : 'Prompt'}</button>
     <button type="button" class="rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:hover:bg-gray-800" title="从磁盘永久删除原图和生成记录" disabled={deleting} on:click={remove}>{deleting ? '删除中…' : '删除'}</button>
+    </div>
   </div>
+  <div id={`image-prompt-${item.id}`} hidden={!promptExpanded} class="mt-2 whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-850">{item.prompt}</div>
   {#if error}<p role="alert" class="mt-2 text-sm text-red-600">{error}</p>{/if}
 </li>
 

@@ -7,7 +7,7 @@ import re
 from typing import Literal
 
 import aiohttp
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, ValidationError
 from PIL import Image
 
@@ -116,6 +116,13 @@ def public(row):
 @router.get('/images')
 async def history(user=Depends(get_admin_user)):
     return [public(row) for row in await records.listing(user.id, kind='image', statuses=['completed'], limit=50)]
+
+
+@router.get('/images/page')
+async def paginated_history(page: int = Query(default=1, ge=1), user=Depends(get_admin_user)):
+    result = await records.image_page(user.id, page)
+    result['items'] = [public(row) for row in result['items']]
+    return result
 
 
 async def owned_image(id, user):

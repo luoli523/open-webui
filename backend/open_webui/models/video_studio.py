@@ -3,7 +3,7 @@
 import time
 import uuid
 
-from sqlalchemy import JSON, BigInteger, Column, Integer, String, delete, select, update
+from sqlalchemy import JSON, BigInteger, Column, Integer, String, delete, func, select, update
 from open_webui.internal.db import Base, get_async_db_context
 
 
@@ -97,3 +97,17 @@ async def remove_image(id, user_id):
             VideoRecord.id == id, VideoRecord.user_id == user_id, VideoRecord.kind == 'image'
         ))
         await db.commit()
+
+
+async def image_page(user_id, page, page_size=20):
+    async with get_async_db_context() as db:
+        conditions = (VideoRecord.user_id == user_id, VideoRecord.kind == 'image',
+                      VideoRecord.status == 'completed')
+        total = await db.scalar(select(func.count()).select_from(VideoRecord).where(*conditions))
+        pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, pages)
+        rows = await db.execute(select(VideoRecord).where(*conditions)
+                                .order_by(VideoRecord.created_at.desc(), VideoRecord.id.desc())
+                                .offset((page - 1) * page_size).limit(page_size))
+        return {'items': [serialize(row) for row in rows.scalars()],
+                'total': total, 'page': page, 'pages': pages}
